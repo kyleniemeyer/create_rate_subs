@@ -70,14 +70,14 @@ def write_rxn_rates(proc_type, specs, reacs):
         file.write('  Real m = p / ({:4e} * T);\n'.format(RU))
         file.write('\n')
         
-        if next((r for r in reacs if r.thd == True), None):
+        if next((r for r in reacs if r.thd), None):
             # third body variables
             file.write('  // third body variable declarations\n')
             file.write('  Real thd;\n')
             file.write('\n')
             thd_flag = True
         
-        if next((r for r in reacs if r.thd == True), None):
+        if next((r for r in reacs if r.pdep), None):
             # pressure dependence variables
             file.write('  // pressure dependence variable declarations\n')
             if not thd_flag: file.write('  Real thd;\n')
@@ -87,7 +87,7 @@ def write_rxn_rates(proc_type, specs, reacs):
             file.write('  Real Pr;\n')
             file.write('\n')
             
-            if next((r for r in reacs if r.troe == True), None):
+            if next((r for r in reacs if r.troe), None):
                 # troe variables
                 file.write('  // troe variable declarations\n')
                 file.write('  Real logPr;\n')
@@ -99,7 +99,7 @@ def write_rxn_rates(proc_type, specs, reacs):
                 
                 troe_flag = True
             
-            if next((r for r in reacs if r.sri == True), None):
+            if next((r for r in reacs if r.sri), None):
                 # sri variables
                 file.write('  // sri variable declarations\n')
                 if not troe_flag: file.write('  Real logPr;\n')
@@ -111,14 +111,14 @@ def write_rxn_rates(proc_type, specs, reacs):
         file.write('  register Real m = p / ({:4e} * T);\n'.format(RU))
         file.write('\n')
         
-        if next((r for r in reacs if r.thd == True), None):
+        if next((r for r in reacs if r.thd), None):
             # third body variables
             file.write('  // third body variable declarations\n')
             file.write('  register Real thd;\n')
             file.write('\n')
             thd_flag = True
         
-        if next((r for r in reacs if r.thd == True), None):
+        if next((r for r in reacs if r.pdep), None):
             # pressure dependence variables
             file.write('  // pressure dependence variable declarations\n')
             if not thd_flag: file.write('  register Real thd;\n')
@@ -128,7 +128,7 @@ def write_rxn_rates(proc_type, specs, reacs):
             file.write('  register Real Pr;\n')
             file.write('\n')
             
-            if next((r for r in reacs if r.troe == True), None):
+            if next((r for r in reacs if r.troe), None):
                 # troe variables
                 file.write('  // troe variable declarations\n')
                 file.write('  register Real logPr;\n')
@@ -140,7 +140,7 @@ def write_rxn_rates(proc_type, specs, reacs):
                 
                 troe_flag = True
             
-            if next((r for r in reacs if r.sri == True), None):
+            if next((r for r in reacs if r.sri), None):
                 # sri variables
                 file.write('  // sri variable declarations\n')
                 if not troe_flag: file.write('  register Real logPr;\n')
