@@ -967,8 +967,8 @@ def write_main(proc_type, specs):
     file.write('  y_host = (Real *) malloc (size);\n\n')
     
     file.write('  // set initial pressure, units [dyn/cm^2]\n')
-    file.write('  // 1 atm = 101325 dyn/cm^2\n')
-    file.write('  Real pres = 101325e0;\n\n')
+    file.write('  // 1 atm = 1.01325e6 dyn/cm^2\n')
+    file.write('  Real pres = 1.01325e6;\n\n')
     file.write('  // set initial temperature, units [K]\n')
     file.write('  Real T0 = 1600.0;\n\n')
     
