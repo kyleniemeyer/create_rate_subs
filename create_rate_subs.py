@@ -424,10 +424,10 @@ def write_chem_utils(proc_type, specs):
     
     """
     if proc_type == 'cpu':
-        filename = 'chem_utils_cpu.h'
+        filename = 'chem_utils_cpu.c'
         pre = ''
     elif proc_type == 'gpu':
-        filename = 'chem_utils_gpu.cuh'
+        filename = 'chem_utils_gpu.cu'
         pre = '__device__ '
     
     file = open(filename, 'w')
