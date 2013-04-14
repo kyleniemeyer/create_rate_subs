@@ -22,11 +22,13 @@ def rxn_rate_const(A, b, E):
         # E = 0
         if not b:
             # b = 0
-            line += str(A)
+            #line += str(A)
+            line += '{:.4e}'.format(A)
         else:
             # b != 0
             if isinstance(b, int):
-                line += str(A)
+                #line += str(A)
+                line += '{:.4e}'.format(A)
                 for i in range(b):
                     line += ' * T'
             else:
@@ -166,7 +168,7 @@ def write_rxn_rates(proc_type, specs, reacs):
         
         # pressure dependence
         if rxn.pdep:
-            if rxn.pdep_sp.lower() == 'm':
+            if rxn.pdep_sp.lower() == '':
                 line = '  thd = m'
                 for sp in rxn.thd_body:
                     isp = specs.index( next((s for s in specs if s.name == sp[0]), None) )
@@ -295,7 +297,7 @@ def write_spec_rates(proc_type, specs, reacs):
     for sp in specs:
         line = '  sp_rates[' + str(specs.index(sp)) + '] = '
         # continuation line
-        cline = ' ' * ( len(line) - 2)
+        cline = ' ' * ( len(line) - 3)
         
         isfirst = True
         
@@ -306,7 +308,10 @@ def write_spec_rates(proc_type, specs, reacs):
             
             # move to new line if current line is too long
             if len(line) > 85:
+                lastLine = line
                 line += '\n'
+                # record position
+                lastPos = file.tell()
                 file.write(line)
                 line = cline
             
@@ -395,8 +400,17 @@ def write_spec_rates(proc_type, specs, reacs):
         # species not participate in any reactions
         if not inreac: line += '0.0'
         
+        #
         # done with this species
+        
+        # check if this line empty
+        if line.strip() is '':
+            # add semicolon to last line
+            file.seek(lastPos)
+            line = lastLine
+        
         line += ';\n\n'
+        
         file.write(line)
     
     
