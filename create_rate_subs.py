@@ -53,6 +53,35 @@ def write_rxn_rates(proc_type, specs, reacs):
     specs: list of species objects
     reacs: list of reaction objects
     """
+    
+    # first write header file
+        if proc_type == 'cpu':
+            file = open('rates.h', 'w')
+            file.write('#ifndef RATES_HEAD\n')
+            file.write('#define RATES_HEAD\n')
+            file.write('\n')
+            file.write('#include "header.h"\n')
+            file.write('\n')
+            file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
+            file.write('void eval_spec_rates (const Real*, Real*);\n')
+            file.write('\n')
+            file.write('#endif\n')
+        
+            file.close()
+        elif proc_type == 'gpu':
+            file = open('rates.cuh', 'w')
+            file.write('#ifndef RATES_HEAD\n')
+            file.write('#define RATES_HEAD\n')
+            file.write('\n')
+            file.write('#include "header.h"\n')
+            file.write('\n')
+            file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
+            file.write('__device__ void eval_spec_rates (const Real*, Real*);\n')
+            file.write('\n')
+            file.write('#endif\n')
+            file.close()
+    
+    # now write main file
     if proc_type == 'cpu':
         filename = 'rxn_rates_cpu.c'
         line = ''
@@ -416,6 +445,39 @@ def write_chem_utils(proc_type, specs):
     """
     
     """
+    
+    # first write header file
+    if proc_type == 'cpu':
+        file = open('chem_utils.h', 'w')
+        file.write('#ifndef CHEM_UTILS_HEAD\n')
+        file.write('#define CHEM_UTILS_HEAD\n')
+        file.write('\n')
+        file.write('#include "header.h"\n')
+        file.write('\n')
+        file.write('void eval_h (const Real, Real*);\n')
+        file.write('void eval_u (const Real, Real*);\n')
+        file.write('void eval_cv (const Real, Real*);\n')
+        file.write('void eval_cp (const Real, Real*);\n')
+        file.write('\n')
+        file.write('#endif\n')
+        
+        file.close()
+    elif proc_type == 'gpu':
+        file = open('chem_utils.cuh', 'w')
+        file.write('#ifndef CHEM_UTILS_HEAD\n')
+        file.write('#define CHEM_UTILS_HEAD\n')
+        file.write('\n')
+        file.write('#include "header.h"\n')
+        file.write('\n')
+        file.write('__device__ void eval_h (const Real, Real*);\n')
+        file.write('__device__ void eval_u (const Real, Real*);\n')
+        file.write('__device__ void eval_cv (const Real, Real*);\n')
+        file.write('__device__ void eval_cp (const Real, Real*);\n')
+        file.write('\n')
+        file.write('#endif\n')
+        file.close()
+    
+    # now main file
     if proc_type == 'cpu':
         filename = 'chem_utils_cpu.c'
         pre = ''
@@ -528,6 +590,34 @@ def write_derivs(proc_type, specs, num_r):
     
     
     """
+    
+    # first write header file
+    if proc_type == 'cpu':
+        file = open('dydt.h', 'w')
+        file.write('#ifndef DYDT_HEAD\n')
+        file.write('#define DYDT_HEAD\n')
+        file.write('\n')
+        file.write('#include "header.h"\n')
+        file.write('\n')
+        file.write('void dydt (const Real, const Real, const Real*, Real*);\n')
+        file.write('\n')
+        file.write('#endif\n')
+        
+        file.close()
+    elif proc_type == 'gpu':
+        file = open('dydt.cuh', 'w')
+        file.write('#ifndef DYDT_HEAD\n')
+        file.write('#define DYDT_HEAD\n')
+        file.write('\n')
+        file.write('#include "header.h"\n')
+        file.write('\n')
+        file.write('__device__ void dydt (const Real, const Real, const Real*, Real*);\n')
+        file.write('\n')
+        file.write('#endif\n')
+        file.close()
+    
+    # now write main file
+    
     if proc_type == 'cpu':
         filename = 'dydt_cpu.c'
         pre = ''
@@ -762,90 +852,55 @@ def write_derivs(proc_type, specs, num_r):
     
     return
 
-def write_int(proc_type, specs):
+
+def write_mass_mole(specs):
     """
     
     """
-    if proc_type == 'cpu':
-        filename = 'RK4_cpu.c'
-        pre = ''
-    elif proc_type == 'gpu':
-        filename = 'RK4_gpu.cu'
-        pre = '__device__ '
+    file = open('mass_mole.c', 'w')
     
-    nn = len(specs) + 1
+    file.write('#include "header.h"\n\n')
     
-    file = open(filename, 'w')
-    
-    file.write(pre + 'void RK4 ( Real t, Real pr, Real h, Real * y0, Real * y ) {\n\n')
-    
-    file.write('  // variables holding various fractions of time step\n')
-    file.write('  Real h2 = h / 2.0;\n')
-    file.write('  Real onesixh = h / 6.0;\n')
-    file.write('  Real onethirdh = h / 3.0;\n')
+    file.write('/** Function converting species mole fractions to mass fractions.\n')
+    file.write(' *\n')
+    file.write(' * \param[in]  X  array of species mole fractions\n')
+    file.write(' * \param[out] Y  array of species mass fractions\n')
+    file.write(' */\n')
+    file.write('void mole2mass ( Real * X, Real * Y ) {\n\n')
+    file.write('  // average molecular weight\n')
+    file.write('  Real mw_avg = 0.0;\n')
+    for sp in specs:
+        file.write('  mw_avg += X[{:}] * {:};\n'.format(specs.index(sp), sp.mw))
     file.write('\n')
     
-    file.write('  // local array holding derivatives\n')
-    file.write('  Real k[NN];\n')
-    file.write('  // local array holding intermediate y values\n')
-    file.write('  Real ym[NN];\n')
+    file.write('  // calculate mass fractions\n')
+    for sp in specs:
+        isp = specs.index(sp)
+        file.write('  Y[{:}] = X[{:}] * {:} / mw_avg;\n'.format(isp, isp, sp.mw))
+    file.write('\n')
+    file.write('} // end mole2mass\n\n')
+    
+    file.write('/** Function converting species mass fractions to mole fractions.\n')
+    file.write(' *\n')
+    file.write(' * \param[in]  Y  array of species mass fractions\n')
+    file.write(' * \param[out] X  array of species mole fractions\n')
+    file.write(' */\n')
+    file.write('void mass2mole ( Real * Y, Real * X ) {\n\n')
+    file.write('  // average molecular weight\n')
+    file.write('  Real mw_avg = 0.0;\n')
+    for sp in specs:
+        file.write('  mw_avg += Y[{:}] / {:};\n'.format(specs.index(sp), sp.mw))
+    file.write('  mw_avg = 1.0 / mw_avg;\n')
     file.write('\n')
     
-    file.write('  // calculate k1\n')
-    file.write('  dydt ( t, pr, y0, k );\n')
+    file.write('  // calculate mass fractions\n')
+    for sp in specs:
+        isp = specs.index(sp)
+        file.write('  X[{:}] = Y[{:}] * mw_avg / {:};\n'.format(isp, isp, sp.mw))
     file.write('\n')
-    
-    file.write('  // calculate midpoint values\n')
-    for i in xrange(nn):
-        file.write('  ym[{:}] = y0[{:}] + h2 * k[{:}];\n'.format(i, i, i))
-    file.write('\n')
-    
-    file.write('  // add first contribution to integrated data\n')
-    for i in xrange(nn):
-        file.write('  y[{:}] = y0[{:}] + onesixh * k[{:}];\n'.format(i, i, i))
-    file.write('\n')
-    
-    file.write('  // calculate k2\n')
-    file.write('  dydt ( t + h2, pr, ym, k );\n')
-    file.write('\n')
-    
-    file.write('  // calculate next midpoint values\n')
-    for i in xrange(nn):
-        file.write('  ym[{:}] = y0[{:}] + h2 * k[{:}];\n'.format(i, i, i))
-    file.write('\n')
-    
-    file.write('  // calculate second contribution to integrated data\n')
-    for i in xrange(nn):
-        file.write('  y[{:}] += onethirdh * k[{:}];\n'.format(i, i))
-    file.write('\n')
-    
-    file.write('  // calculate k3\n')
-    file.write('  dydt ( t + h2, pr, ym, k );\n')
-    file.write('\n')
-    
-    file.write('  // calculate next midpoint values\n')
-    for i in xrange(nn):
-        file.write('  ym[{:}] = y0[{:}] + h * k[{:}];\n'.format(i, i, i))
-    file.write('\n')
-    
-    file.write('  // calculate third contribution to integrated data\n')
-    for i in xrange(nn):
-        file.write('  y[{:}] += onethirdh * k[{:}];\n'.format(i, i))
-    file.write('\n')
-    
-    file.write('  // calculate k4\n')
-    file.write('  dydt ( t + h, pr, ym, k );\n')
-    file.write('\n')
-    
-    file.write('  // add final contribution to integrated data\n')
-    for i in xrange(nn):
-        file.write('  y[{:}] += onesixh * k[{:}];\n'.format(i, i))
-    file.write('\n')
-    
-    file.write('} // end RK4\n')
+    file.write('} // end mass2mole\n\n')
     
     file.close()
-    
     return
 
 
@@ -1225,44 +1280,15 @@ def write_header(specs):
     file.write('typedef unsigned short int usint;\n')
     file.write('\n')
     
-    file.write('/** Function converting species mole fractions to mass fractions.\n')
-    file.write(' *\n')
-    file.write(' * \param[in]  X  array of species mole fractions\n')
-    file.write(' * \param[out] Y  array of species mass fractions\n')
-    file.write(' */\n')
-    file.write('void mole2mass ( Real * X, Real * Y ) {\n\n')
-    file.write('  // average molecular weight\n')
-    file.write('  Real mw_avg = 0.0;\n')
-    for sp in specs:
-        file.write('  mw_avg += X[{:}] * {:};\n'.format(specs.index(sp), sp.mw))
+    file.write('#ifdef __cplusplus\n')
+    file.write('extern "C" {\n')
+    file.write('#endif\n')
+    file.write('void mole2mass (const Real*, Real*);\n')
+    file.write('void mass2mole (const Real*, Real*);\n')
+    file.write('#ifdef __cplusplus\n')
+    file.write('}\n')
+    file.write('#endif\n')
     file.write('\n')
-    
-    file.write('  // calculate mass fractions\n')
-    for sp in specs:
-        isp = specs.index(sp)
-        file.write('  Y[{:}] = X[{:}] * {:} / mw_avg;\n'.format(isp, isp, sp.mw))
-    file.write('\n')
-    file.write('} // end mole2mass\n\n')
-    
-    file.write('/** Function converting species mass fractions to mole fractions.\n')
-    file.write(' *\n')
-    file.write(' * \param[in]  Y  array of species mass fractions\n')
-    file.write(' * \param[out] X  array of species mole fractions\n')
-    file.write(' */\n')
-    file.write('void mass2mole ( Real * Y, Real * X ) {\n\n')
-    file.write('  // average molecular weight\n')
-    file.write('  Real mw_avg = 0.0;\n')
-    for sp in specs:
-        file.write('  mw_avg += Y[{:}] / {:};\n'.format(specs.index(sp), sp.mw))
-    file.write('  mw_avg = 1.0 / mw_avg;\n')
-    file.write('\n')
-    
-    file.write('  // calculate mass fractions\n')
-    for sp in specs:
-        isp = specs.index(sp)
-        file.write('  X[{:}] = Y[{:}] * mw_avg / {:};\n'.format(isp, isp, sp.mw))
-    file.write('\n')
-    file.write('} // end mass2mole\n\n')
     
     file.close()
     
@@ -1343,8 +1369,8 @@ def create_rate_subs(proc_type, mech_name, therm_name = None):
     # write derivative subroutines
     write_derivs(proc_type, specs, num_r)
     
-    # write integrator subroutine
-    write_int(proc_type, specs)
+    # write mass-mole converter subroutines
+    write_mass_mole(specs)
     
     # write main and integration driver subroutines
     write_main(proc_type, specs)
