@@ -62,7 +62,9 @@ def write_rxn_rates(proc_type, specs, reacs):
     
     file = open(filename, 'w')
     
-    line += 'void eval_rxn_rates ( Real T, Real p, Real * C, Real * rates ) {\n'
+    file.write('#include "header.h"\n\n')
+    
+    line += 'void eval_rxn_rates (const Real T, const Real p, const Real* C, Real* rates ) {\n'
     file.write(line)
     
     thd_flag = False
@@ -279,7 +281,9 @@ def write_spec_rates(proc_type, specs, reacs):
     
     file = open(filename, 'w')
     
-    line += 'void eval_spec_rates ( Real * rates, Real * sp_rates ) {\n\n'
+    file.write('#include "header.h"\n\n')
+    
+    line += 'void eval_spec_rates (const Real* rates, Real* sp_rates ) {\n\n'
     file.write(line)
     
     # loop through species
@@ -421,8 +425,10 @@ def write_chem_utils(proc_type, specs):
     
     file = open(filename, 'w')
     
+    file.write('#include "header.h"\n\n')
+    
     # enthalpy subroutine
-    line = pre + 'void eval_h ( Real T, Real * h ) {\n\n'
+    line = pre + 'void eval_h (const Real T, Real* h) {\n\n'
     file.write(line)
     
     # loop through species
@@ -445,7 +451,7 @@ def write_chem_utils(proc_type, specs):
     file.write('} // end eval_h\n\n')
     
     # internal energy subroutine
-    line = pre + 'void eval_u ( Real T, Real * u ) {\n\n'
+    line = pre + 'void eval_u (const Real T, Real* u) {\n\n'
     file.write(line)
     
     # loop through species
@@ -468,7 +474,7 @@ def write_chem_utils(proc_type, specs):
     file.write('} // end eval_u\n\n')
     
     # cv subroutine
-    line = pre + 'void eval_cv ( Real T, Real * cv ) {\n\n'
+    line = pre + 'void eval_cv (const Real T, Real* cv) {\n\n'
     file.write(line)
     
     # loop through species
@@ -491,7 +497,7 @@ def write_chem_utils(proc_type, specs):
     file.write('} // end eval_cv\n\n')
     
     # cp subroutine 
-    line = pre + 'void eval_cp ( Real T, Real * cp ) {\n\n'
+    line = pre + 'void eval_cp (const Real T, Real* cp) {\n\n'
     file.write(line)
     
     # loop through species
@@ -531,10 +537,12 @@ def write_derivs(proc_type, specs, num_r):
     
     file = open(filename, 'w')
     
+    file.write('#include "header.h"\n\n')
+    
     # constant pressure
     file.write('#if defined(CONP)\n\n')
     
-    line = pre + 'void dydt ( Real t, Real pres, Real * y, Real * dy ) {\n\n'
+    line = pre + 'void dydt (const Real t, const Real pres, const Real* y, Real* dy) {\n\n'
     file.write(line)
     
     file.write('  Real T = y[0];\n\n')
@@ -643,7 +651,7 @@ def write_derivs(proc_type, specs, num_r):
     # constant volume
     file.write('#elif defined(CONV)\n\n')
     
-    line = pre + 'void dydt ( Real t, Real rho, Real * y, Real * dy ) {\n\n'
+    line = pre + 'void dydt (const Real t, const Real rho, const Real* y, Real* dy ) {\n\n'
     file.write(line)
     
     file.write('  Real T = y[0];\n\n')
@@ -860,11 +868,8 @@ def write_main(proc_type, specs):
     file.write('#include "header.h"\n\n')
     
     if proc_type == 'cpu':
-        file.write('#include "chem_utils_cpu.h"\n')
-        file.write('#include "rxn_rates_cpu.c"\n')
-        file.write('#include "spec_rates_cpu.c"\n')
-        file.write('#include "dydt_cpu.c"\n')
-        file.write('#include "RK4_cpu.c"\n\n')
+        file.write('#include "chem_utils.h"\n')
+        file.write('#include "rates.h"\n')
     else:
         file.write('/** CUDA libraries */\n')
         file.write('#include <cuda.h>\n')
@@ -872,14 +877,11 @@ def write_main(proc_type, specs):
         file.write('\n')
         
         file.write('#include "chem_utils_gpu.cuh"\n')
-        file.write('#include "rxn_rates_gpu.cu"\n')
-        file.write('#include "spec_rates_gpu.cu"\n')
-        file.write('#include "dydt_gpu.cu"\n')
-        file.write('#include "RK4_gpu.cu"\n\n')
+        file.write('#include "rates.cuh"\n')
     
     file.write('///////////////////////////////////////////////////////\n\n')
     
-    file.write(pre + 'void intDriver ( Real t, Real h, Real pr, Real * y_global ) {\n\n')
+    file.write(pre + 'void intDriver (const Real t, const Real h, const Real pr, Real* y_global ) {\n\n')
     
     if proc_type == 'cpu':
         file.write('  // loop over all "threads"\n')
@@ -902,7 +904,7 @@ def write_main(proc_type, specs):
     file.write('\n')
     
     file.write(tab + '// call integrator for one time step\n')
-    file.write(tab + 'RK4 ( t, pr, h, y0_local, yn_local );\n\n')
+    file.write(tab + 'INTEGRATOR ( t, pr, h, y0_local, yn_local );\n\n')
     
     file.write(tab + '// update global array with integrated values\n')
     for i in xrange(nn):
