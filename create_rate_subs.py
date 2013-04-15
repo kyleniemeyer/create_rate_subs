@@ -168,21 +168,10 @@ def write_rxn_rates(proc_type, specs, reacs):
         
         # pressure dependence
         if rxn.pdep:
-            if rxn.pdep_sp.lower() == '':
-                line = '  thd = m'
-                for sp in rxn.thd_body:
-                    isp = specs.index( next((s for s in specs if s.name == sp[0]), None) )
-                    if sp[1] > 1.0:
-                        line += ' + ' + str(sp[1] - 1.0) + ' * C[' + str(isp) + ']'
-                    elif sp[1] < 1.0:
-                        line += ' - ' + str(1.0 - sp[1]) + ' * C[' + str(isp) + ']'
-                
-            else:
+            if rxn.pdep_sp:
                 isp = next(i for i in xrange(len(specs)) if specs[i].name == rxn.pdep_sp)
-                line = '  thd = C[' + str(isp) + ']'
-            
-            line += ';\n'
-            file.write(line)
+                line = '  thd = C[' + str(isp) + '];\n'
+                file.write(line)
             
             # low-pressure limit rate:
             line = '  k0 = '
@@ -209,7 +198,7 @@ def write_rxn_rates(proc_type, specs, reacs):
                 # troe form
                 file.write('  logPr = log10(Pr);\n')
                 line = '  logFcent = log10( {:4e} * exp(-T / {:4e})'.format(1.0 - rxn.troe_par[0], rxn.troe_par[1])
-                line += ' + {:4e} * exp(T / {:4e})'.format(rxn.troe_par[0], rxn.troe_par[2])
+                line += ' + {:4e} * exp(-T / {:4e})'.format(rxn.troe_par[0], rxn.troe_par[2])
                 if len(rxn.troe_par) == 4:
                     line += ' + exp(-{:4e} / T)'.format(rxn.troe_par[3])
                 
@@ -242,7 +231,7 @@ def write_rxn_rates(proc_type, specs, reacs):
         
         line = '  rates[' + str(reacs.index(rxn)) + '] = '
         
-        if rxn.thd:
+        if rxn.thd and not rxn.pdep:
             line += 'thd * '
         
         # reactants
