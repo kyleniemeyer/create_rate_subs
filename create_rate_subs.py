@@ -55,31 +55,31 @@ def write_rxn_rates(proc_type, specs, reacs):
     """
     
     # first write header file
-        if proc_type == 'cpu':
-            file = open('rates.h', 'w')
-            file.write('#ifndef RATES_HEAD\n')
-            file.write('#define RATES_HEAD\n')
-            file.write('\n')
-            file.write('#include "header.h"\n')
-            file.write('\n')
-            file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
-            file.write('void eval_spec_rates (const Real*, Real*);\n')
-            file.write('\n')
-            file.write('#endif\n')
-        
-            file.close()
-        elif proc_type == 'gpu':
-            file = open('rates.cuh', 'w')
-            file.write('#ifndef RATES_HEAD\n')
-            file.write('#define RATES_HEAD\n')
-            file.write('\n')
-            file.write('#include "header.h"\n')
-            file.write('\n')
-            file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
-            file.write('__device__ void eval_spec_rates (const Real*, Real*);\n')
-            file.write('\n')
-            file.write('#endif\n')
-            file.close()
+    if proc_type == 'cpu':
+        file = open('rates.h', 'w')
+        file.write('#ifndef RATES_HEAD\n')
+        file.write('#define RATES_HEAD\n')
+        file.write('\n')
+        file.write('#include "header.h"\n')
+        file.write('\n')
+        file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
+        file.write('void eval_spec_rates (const Real*, Real*);\n')
+        file.write('\n')
+        file.write('#endif\n')
+    
+        file.close()
+    elif proc_type == 'gpu':
+        file = open('rates.cuh', 'w')
+        file.write('#ifndef RATES_HEAD\n')
+        file.write('#define RATES_HEAD\n')
+        file.write('\n')
+        file.write('#include "header.h"\n')
+        file.write('\n')
+        file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
+        file.write('__device__ void eval_spec_rates (const Real*, Real*);\n')
+        file.write('\n')
+        file.write('#endif\n')
+        file.close()
     
     # now write main file
     if proc_type == 'cpu':
