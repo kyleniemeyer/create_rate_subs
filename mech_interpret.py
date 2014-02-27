@@ -39,6 +39,9 @@ def read_mech(filename, elems, specs, reacs):
         ind = line.find('!')
         if ind > 0: line = line[0:ind]
         
+        # remove any leading/trailing spaces
+        line = line.strip()
+        
         # now determine key
         if line[0:4].lower() == 'elem':
             key = 'elem'
@@ -86,8 +89,6 @@ def read_mech(filename, elems, specs, reacs):
         elif line[0:3].lower() == 'end':
             key = ''
             continue
-        
-        line = line.strip()
         
         if key == 'elem':
             # if any atomic weight declarations, replace / with spaces
@@ -418,6 +419,7 @@ def read_mech(filename, elems, specs, reacs):
                     for i in range(0, len(line_split), 2):
                         reacs[num_r - 1].thd_body.append( [line_split[i], float(line_split[i + 1])] )
     
+    file.close()
     return (num_e, num_s, num_r, units)
 
 
@@ -528,6 +530,9 @@ def read_thermo(file, elems, specs):
         # second species line
         line = file.readline()
         coeffs = split_str(line[0:75], 15)
+        for i, c in enumerate(coeffs):
+            if c[11].lower() == 'e' and c[12] == ' ':
+                coeffs[i] = c[:12] + '+' + c[13:]
         spec.hi[0] = float( coeffs[0] )
         spec.hi[1] = float( coeffs[1] )
         spec.hi[2] = float( coeffs[2] )
@@ -537,6 +542,9 @@ def read_thermo(file, elems, specs):
         # third species line
         line = file.readline()
         coeffs = split_str(line[0:75], 15)
+        for i, c in enumerate(coeffs):
+            if c[11].lower() == 'e' and c[12] == ' ':
+                coeffs[i] = c[:12] + '+' + c[13:]
         spec.hi[5] = float( coeffs[0] )
         spec.hi[6] = float( coeffs[1] )
         spec.lo[0] = float( coeffs[2] )
@@ -546,6 +554,9 @@ def read_thermo(file, elems, specs):
         # fourth species line
         line = file.readline()
         coeffs = split_str(line[0:75], 15)
+        for i, c in enumerate(coeffs):
+            if c[11].lower() == 'e' and c[12] == ' ':
+                coeffs[i] = c[:12] + '+' + c[13:]
         spec.lo[3] = float( coeffs[0] )
         spec.lo[4] = float( coeffs[1] )
         spec.lo[5] = float( coeffs[2] )
