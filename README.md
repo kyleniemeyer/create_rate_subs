@@ -21,7 +21,7 @@ License
 
 If you use this package as part of a scholarly publication, please cite the following paper in addition to this resource:
 
- * KE Niemeyer and CJ Sung. Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs. *J. Comput. Phys.*, 256:854--871, 2014. doi:[10.1016/j.jcp.2013.09.025](http://dx.doi.org/10.1016/j.jcp.2013.09.025) 
+ * KE Niemeyer and CJ Sung. Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs. *J. Comput. Phys.*, 256:854-871, 2014. doi:[10.1016/j.jcp.2013.09.025](http://dx.doi.org/10.1016/j.jcp.2013.09.025) 
 
 Author
 ------
