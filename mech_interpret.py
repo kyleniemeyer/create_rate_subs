@@ -412,6 +412,20 @@ def read_mech(filename, elems, specs, reacs):
                     if len(line_split) > 4:
                         reacs[num_r - 1].sri_par.append( float( line_split[4] ) )
                         reacs[num_r - 1].sri_par.append( float( line_split[5] ) )
+                    
+                elif aux == 'plo':
+                    # PLOG
+                    line = line.replace('/', ' ')
+                    line = line.replace('\t', ' ')
+                    line_split = line.split()
+                    reacs[num_r - 1].plog = True
+                    
+                    # line has pressure (atm) and three Arrhenius coefficients
+                    # convert pressure from atm to dyn/cm^2
+                    pres = float(line_split[1]) * 1.01325e6
+                    reacs[num_r - 1].plog_par.append([pres, float(line_split[2]),
+                                                     float(line_split[3]), float(line_split[4])])
+                    
                 else:
                     # enhanced third body efficiencies
                     line = line.replace('/', ' ')

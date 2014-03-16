@@ -75,6 +75,9 @@ class ReacInfo:
         
         self.sri = False
         self.sri_par = []
+        
+        self.plog = False
+        self.plog_par = []
 
 
 class SpecInfo:

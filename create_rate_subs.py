@@ -97,88 +97,52 @@ def write_rxn_rates(proc_type, specs, reacs):
     file.write(line)
     
     thd_flag = False
+    pdepFlag = False
     
-    if proc_type == 'cpu':
-        file.write('  Real logT = log(T);\n')
-        file.write('  Real m = p / ({:4e} * T);\n'.format(RU))
+    file.write('  Real logT = log(T);\n')
+    file.write('  Real m = p / ({:4e} * T);\n'.format(RU))
+    file.write('\n')
+    
+    if next((r for r in reacs if r.thd), None):
+        # third body variables
+        file.write('  // third body variable declarations\n')
+        file.write('  Real thd;\n')
+        file.write('\n')
+        thd_flag = True
+    
+    if next((r for r in reacs if r.pdep), None):
+        pdepFlag = True
+        
+        # pressure dependence variables
+        file.write('  // pressure dependence variable declarations\n')
+        if not thd_flag: file.write('  Real thd;\n')
+        file.write('  Real k0;\n')
+        file.write('  Real kinf;\n')
+        file.write('  Real F;\n')
+        file.write('  Real Pr;\n')
         file.write('\n')
         
-        if next((r for r in reacs if r.thd), None):
-            # third body variables
-            file.write('  // third body variable declarations\n')
-            file.write('  Real thd;\n')
-            file.write('\n')
-            thd_flag = True
-        
-        if next((r for r in reacs if r.pdep), None):
-            # pressure dependence variables
-            file.write('  // pressure dependence variable declarations\n')
-            if not thd_flag: file.write('  Real thd;\n')
-            file.write('  Real k0;\n')
-            file.write('  Real kinf;\n')
-            file.write('  Real F;\n')
-            file.write('  Real Pr;\n')
+        if next((r for r in reacs if r.troe), None):
+            # troe variables
+            file.write('  // troe variable declarations\n')
+            file.write('  Real logPr;\n')
+            file.write('  Real logFcent;\n')
+            file.write('  Real logPrc;\n')
+            file.write('  Real n;\n')
+            file.write('  Real Fterm;\n')
             file.write('\n')
             
-            if next((r for r in reacs if r.troe), None):
-                # troe variables
-                file.write('  // troe variable declarations\n')
-                file.write('  Real logPr;\n')
-                file.write('  Real logFcent;\n')
-                file.write('  Real logPrc;\n')
-                file.write('  Real n;\n')
-                file.write('  Real Fterm;\n')
-                file.write('\n')
-                
-                troe_flag = True
-            
-            if next((r for r in reacs if r.sri), None):
-                # sri variables
-                file.write('  // sri variable declarations\n')
-                if not troe_flag: file.write('  Real logPr;\n')
-                file.write('  Real x;\n')
-                file.write('\n')
+            troe_flag = True
         
-    else:
-        file.write('  register Real logT = log(T);\n')
-        file.write('  register Real m = p / ({:4e} * T);\n'.format(RU))
-        file.write('\n')
-        
-        if next((r for r in reacs if r.thd), None):
-            # third body variables
-            file.write('  // third body variable declarations\n')
-            file.write('  register Real thd;\n')
+        if next((r for r in reacs if r.sri), None):
+            # sri variables
+            file.write('  // sri variable declarations\n')
+            if not troe_flag: file.write('  Real logPr;\n')
+            file.write('  Real x;\n')
             file.write('\n')
-            thd_flag = True
-        
-        if next((r for r in reacs if r.pdep), None):
-            # pressure dependence variables
-            file.write('  // pressure dependence variable declarations\n')
-            if not thd_flag: file.write('  register Real thd;\n')
-            file.write('  register Real k0;\n')
-            file.write('  register Real kinf;\n')
-            file.write('  register Real F;\n')
-            file.write('  register Real Pr;\n')
-            file.write('\n')
-            
-            if next((r for r in reacs if r.troe), None):
-                # troe variables
-                file.write('  // troe variable declarations\n')
-                file.write('  register Real logPr;\n')
-                file.write('  register Real logFcent;\n')
-                file.write('  register Real logPrc;\n')
-                file.write('  register Real n;\n')
-                file.write('  register Real Fterm;\n')
-                file.write('\n')
-                
-                troe_flag = True
-            
-            if next((r for r in reacs if r.sri), None):
-                # sri variables
-                file.write('  // sri variable declarations\n')
-                if not troe_flag: file.write('  register Real logPr;\n')
-                file.write('  register Real x;\n')
-                file.write('\n')
+    if next((r for r in reacs if r.plog), None) and not pdepFlag:
+        file.write('  Real k0;\n')
+        file.write('  Real kinf;\n')
     
     file.write('\n')
     
@@ -204,29 +168,30 @@ def write_rxn_rates(proc_type, specs, reacs):
                 line = '  thd = C[' + str(isp) + '];\n'
                 file.write(line)
             
-            # low-pressure limit rate:
-            line = '  k0 = '
-            if rxn.low:
-                line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
-            else:
-                line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-            line += ';\n'
-            file.write(line)
-            
-            # high-pressure limit rate:
-            line = '  kinf = '
-            if rxn.high:
-                line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
-            else:
-                line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-            line += ';\n'
-            file.write(line)
-            
-            # reduced pressure
-            file.write('  Pr = k0 * thd / kinf;\n')
-            
             if rxn.troe:
                 # troe form
+                
+                # low-pressure limit rate:
+                line = '  k0 = '
+                if rxn.low:
+                    line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
+                else:
+                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
+                line += ';\n'
+                file.write(line)
+                
+                # high-pressure limit rate:
+                line = '  kinf = '
+                if rxn.high:
+                    line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
+                else:
+                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
+                line += ';\n'
+                file.write(line)
+                
+                # reduced pressure
+                file.write('  Pr = k0 * thd / kinf;\n')
+                
                 file.write('  logPr = log10(Pr);\n')
                 # need to check for negative parameters, and skip "-" sign if so
                 if rxn.troe_par[1] > 0.0:
@@ -258,6 +223,28 @@ def write_rxn_rates(proc_type, specs, reacs):
                 
             elif rxn.sri:
                 # sri form
+                
+                # low-pressure limit rate:
+                line = '  k0 = '
+                if rxn.low:
+                    line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
+                else:
+                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
+                line += ';\n'
+                file.write(line)
+                
+                # high-pressure limit rate:
+                line = '  kinf = '
+                if rxn.high:
+                    line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
+                else:
+                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
+                line += ';\n'
+                file.write(line)
+                
+                # reduced pressure
+                file.write('  Pr = k0 * thd / kinf;\n')
+                
                 file.write('  logPr = log10(Pr);\n')
                 file.write('  x = 1.0 / (1.0 + logPr * logPr);\n')
                 
@@ -280,8 +267,57 @@ def write_rxn_rates(proc_type, specs, reacs):
                 
             else:
                 # lindemann form
+                
+                # low-pressure limit rate:
+                line = '  k0 = '
+                if rxn.low:
+                    line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
+                else:
+                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
+                line += ';\n'
+                file.write(line)
+                
+                # high-pressure limit rate:
+                line = '  kinf = '
+                if rxn.high:
+                    line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
+                else:
+                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
+                line += ';\n'
+                file.write(line)
+                
+                # reduced pressure
+                file.write('  Pr = k0 * thd / kinf;\n')
                 file.write('  F = 1.0;\n')
-        
+        elif rxn.plog:
+            # Plog form
+            # pressure dependent, but not falloff formulation
+            
+            # if pressure is less than or equal to lowest
+            seq = rxn.plog_par[0]
+            file.write('  if (p <= {:.4f}) {{\n'.format(seq[0]))
+            line = '    kinf = ' + rxn_rate_const(seq[1], seq[2], seq[3]) + ';\n'
+            file.write(line)
+            
+            for i in range(len(rxn.plog_par) - 1):
+                seq = rxn.plog_par[i]
+                seqNext = rxn.plog_par[i + 1]
+                file.write('  }} else if (p > {:.4f} && p <= {:.4f}) {{\n'.format(seq[0], seqNext[0]))
+                line = '    k0 = ' + rxn_rate_const(seq[1], seq[2], seq[3]) + ';\n'
+                file.write(line)
+                line = '    kinf = ' + rxn_rate_const(seqNext[1], seqNext[2], seqNext[3]) + ';\n'
+                file.write(line)
+                line = '    kinf = exp(log(k0) + (log(kinf) - log(k0)) * (log(p) - log({:.4f}))'.format(seq[0])
+                line += ' / (log({:.4f}) - log({:.4f})))'.format(seqNext[0], seq[0])
+                line += ';\n'
+                file.write(line)
+            
+            # if pressure is greater than or equal to highest
+            seq = rxn.plog_par[-1]
+            file.write('  }} else if (p >= {:.4f}) {{\n'.format(seq[0]))
+            line = '    kinf = ' + rxn_rate_const(seq[1], seq[2], seq[3]) + ';\n'
+            file.write(line)
+            file.write('  }\n')
         
         line = '  rates[' + str(reacs.index(rxn)) + '] = '
         
@@ -302,11 +338,13 @@ def write_rxn_rates(proc_type, specs, reacs):
                     line += 'C[' + str(isp) + '] * '
         
         # rate constant
-        if not rxn.pdep:
-            # no pressure dependence, normal rate constant
-            line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-        else:
+        if rxn.pdep:
             line += 'kinf * F * Pr / (1.0 + Pr)'
+        elif rxn.plog:
+            line += 'kinf'
+        else:
+            # no pressure dependence, normal rate constant
+            line += rxn_rate_const(rxn.A, rxn.b, rxn.E)   
         
         line += ';\n'
         file.write(line)
@@ -1366,19 +1404,20 @@ def create_rate_subs(proc_type, mech_name, therm_name = None):
         elif 'joules' in units:
             efac = 1.00 / RU_JOUL
         elif 'evolt' in units:
-            efac = 11595.
+            efac = 11595.0
         else:
             # default is cal/mole
             efac = 4.184 / RU_JOUL
         
-        for rxn in reacs:
-            rxn.E *= efac
-        
-        for rxn in [rxn for rxn in reacs if rxn.low]:
-            rxn.low[2] *= efac
-        
-        for rxn in [rxn for rxn in reacs if rxn.high]:
-            rxn.high[2] *= efac
+        for i, rxn in enumerate(reacs):
+            reacs[i].E = rxn.E * efac
+            
+            if rxn.low:
+                reacs[i].low[2] = rxn.low[2] * efac
+            if rxn.high:
+                reacs[i].high[2] = rxn.high[2] * efac
+            if rxn.plog:
+                reacs[i].plog_par[4] = rxn.plog_par[4] * efac
     
     # print reaction rate subroutine
     write_rxn_rates(proc_type, specs, reacs)
