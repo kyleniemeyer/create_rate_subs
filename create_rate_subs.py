@@ -195,20 +195,20 @@ def write_rxn_rates(proc_type, specs, reacs):
                 file.write('  logPr = log10(Pr);\n')
                 # need to check for negative parameters, and skip "-" sign if so
                 if rxn.troe_par[1] > 0.0:
-                    line = '  logFcent = log10( {:4e} * exp(-T / {:4e})'.format(1.0 - rxn.troe_par[0], rxn.troe_par[1])
+                    line = '  logFcent = log10( {:.4e} * exp(-T / {:.4e})'.format(1.0 - rxn.troe_par[0], rxn.troe_par[1])
                 else:
-                    line = '  logFcent = log10( {:4e} * exp(T / {:4e})'.format(1.0 - rxn.troe_par[0], abs(rxn.troe_par[1]))
+                    line = '  logFcent = log10( {:.4e} * exp(T / {:.4e})'.format(1.0 - rxn.troe_par[0], abs(rxn.troe_par[1]))
                 
                 if rxn.troe_par[2] > 0.0:
-                    line += ' + {:4e} * exp(-T / {:4e})'.format(rxn.troe_par[0], rxn.troe_par[2])
+                    line += ' + {:.4e} * exp(-T / {:.4e})'.format(rxn.troe_par[0], rxn.troe_par[2])
                 else:
-                    line += ' + {:4e} * exp(T / {:4e})'.format(rxn.troe_par[0], abs(rxn.troe_par[2]))
+                    line += ' + {:.4e} * exp(T / {:.4e})'.format(rxn.troe_par[0], abs(rxn.troe_par[2]))
                 
                 if len(rxn.troe_par) == 4:
                     if rxn.troe_par[3] > 0.0:
-                        line += ' + exp(-{:4e} / T)'.format(rxn.troe_par[3])
+                        line += ' + exp(-{:.4e} / T)'.format(rxn.troe_par[3])
                     else:
-                        line += ' + exp({:4e} / T)'.format(abs(rxn.troe_par[3]))
+                        line += ' + exp({:.4e} / T)'.format(abs(rxn.troe_par[3]))
                 
                 line += ' );\n'
                 file.write(line)
@@ -248,20 +248,20 @@ def write_rxn_rates(proc_type, specs, reacs):
                 file.write('  logPr = log10(Pr);\n')
                 file.write('  x = 1.0 / (1.0 + logPr * logPr);\n')
                 
-                line = '  F = pow({:4} * '.format(rxn.sri[0])
+                line = '  F = pow({:.4e} * '.format(rxn.sri[0])
                 # need to check for negative parameters, and skip "-" sign if so
                 if rxn.sri[1] > 0.0:
-                    line += 'exp(-{:4} / T)'.format(rxn.sri[1])
+                    line += 'exp(-{:.4e} / T)'.format(rxn.sri[1])
                 else:
-                    line += 'exp({:4} / T)'.format(abs(rxn.sri[1]))
+                    line += 'exp({:.4e} / T)'.format(abs(rxn.sri[1]))
                 
                 if rxn.sri[2] > 0.0:
-                    line += ' + exp(-T / {:4}), x)'.format(rxn.sri[2])
+                    line += ' + exp(-T / {:.4e}), x)'.format(rxn.sri[2])
                 else:
-                    line += ' + exp(T / {:4}), x)'.format(abs(rxn.sri[2]))
+                    line += ' + exp(T / {:.4e}), x)'.format(abs(rxn.sri[2]))
                 
                 if len(rxn.sri) == 5:
-                    line += ' * {:4e} * pow(T, {:4})'.format(rxn.sri[3], rxn.sri[4])
+                    line += ' * {:.4e} * pow(T, {:.4e})'.format(rxn.sri[3], rxn.sri[4])
                 line += ';\n'
                 file.write(line)
                 
