@@ -54,6 +54,9 @@ def write_rxn_rates(proc_type, specs, reacs):
     reacs: list of reaction objects
     """
     
+    # reverse reactions?
+    rev_reacs = [rxn for rxn in reacs if rxn.rev]
+    
     # first write header file
     if proc_type == 'cpu':
         file = open('rates.h', 'w')
@@ -62,8 +65,12 @@ def write_rxn_rates(proc_type, specs, reacs):
         file.write('\n')
         file.write('#include "header.h"\n')
         file.write('\n')
-        file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
-        file.write('void eval_spec_rates (const Real*, Real*);\n')
+        if rev_reacs:
+            file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*, Real*);\n')
+            file.write('void eval_spec_rates (const Real*, const Real* Real*);\n')
+        else:
+            file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
+            file.write('void eval_spec_rates (const Real*, Real*);\n')
         file.write('\n')
         file.write('#endif\n')
     
@@ -75,8 +82,12 @@ def write_rxn_rates(proc_type, specs, reacs):
         file.write('\n')
         file.write('#include "header.h"\n')
         file.write('\n')
-        file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
-        file.write('__device__ void eval_spec_rates (const Real*, Real*);\n')
+        if rev_reacs:
+            file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*, Real*);\n')
+            file.write('__device__ void eval_spec_rates (const Real*, const Real* Real*);\n')
+        else:
+            file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
+            file.write('__device__ void eval_spec_rates (const Real*, Real*);\n')
         file.write('\n')
         file.write('#endif\n')
         file.close()
@@ -93,7 +104,10 @@ def write_rxn_rates(proc_type, specs, reacs):
     
     file.write('#include "header.h"\n\n')
     
-    line += 'void eval_rxn_rates (const Real T, const Real p, const Real* C, Real* rates ) {\n'
+    if rev_reacs:
+        line += 'void eval_rxn_rates (const Real T, const Real p, const Real* C, Real* fwd_rates, Real* rev_rates) {\n'
+    else:
+        line += 'void eval_rxn_rates (const Real T, const Real p, const Real* C, Real* fwd_rates ) {\n'
     file.write(line)
     
     thd_flag = False
@@ -319,7 +333,7 @@ def write_rxn_rates(proc_type, specs, reacs):
             file.write(line)
             file.write('  }\n')
         
-        line = '  rates[' + str(reacs.index(rxn)) + '] = '
+        line = '  fwd_rates[' + str(reacs.index(rxn)) + '] = '
         
         if rxn.thd and not rxn.pdep:
             line += 'thd * '
@@ -348,6 +362,136 @@ def write_rxn_rates(proc_type, specs, reacs):
         
         line += ';\n'
         file.write(line)
+        
+        # reverse rate
+        if rxn.rev:
+            
+            if not rxn.rev_par:
+                # need to get equilibrium constants
+                line = '  Kc = 0.0;\n'
+                file.write(line)
+                
+                # sum of stoichiometric coefficients
+                sum_nu = 0
+                
+                # go through product species
+                for prod_sp in rxn.prod:
+                    isp = rxn.prod.index(prod_sp)
+                    
+                    # check if species also in reactants
+                    if prod_sp in rxn.reac:
+                        isp2 = rxn.reac.index(prod_sp)
+                        nu = rxn.prod_nu[isp] - rxn.reac_nu[isp2]
+                    else:
+                        nu = rxn.prod_nu[isp]
+                    
+                    # skip species with zero overall stoichiometric coefficient
+                    if (nu == 0):
+                        continue
+                    
+                    sum_nu += nu
+                    
+                    # get species object
+                    sp = next((sp for sp in specs if sp.name == prod_sp), None)
+                    if not sp:
+                        print 'Error: species ' + prod_sp + ' in reaction ' + str(reacs.index(rxn)) + ' not found.\n'
+                        sys.exit()
+                    
+                    # need temperature conditional for equilibrium constants
+                    line = '  if (T <= {:}) {{\n'.format(sp.Trange[1])
+                    file.write(line)
+                    
+                    if nu < 0:
+                        line = '    Kc = Kc - {:.2f} * '.format(abs(nu))
+                    elif nu > 0:
+                        line = '    Kc = Kc + {:.2f} * '.format(nu)
+                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.lo[6], sp.lo[0], sp.lo[0] - 1.0, sp.lo[1]/2.0, sp.lo[2]/6.0, sp.lo[3]/12.0, sp.lo[4]/20.0, sp.lo[5])
+                    line += ';\n'
+                    file.write(line)
+                    
+                    file.write('  } else {\n')
+                    
+                    if nu < 0:
+                        line = '    Kc = Kc - {:.2f} * '.format(abs(nu))
+                    elif nu > 0:
+                        line = '    Kc = Kc + {:.2f} * '.format(nu)
+                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.hi[6], sp.hi[0], sp.hi[0] - 1.0, sp.hi[1]/2.0, sp.hi[2]/6.0, sp.hi[3]/12.0, sp.hi[4]/20.0, sp.hi[5])
+                    line += ';\n'
+                    file.write(line)
+                    
+                    file.write('  }\n\n')
+                
+                # now loop through reactants
+                for reac_sp in rxn.reac:
+                    isp = rxn.reac.index(reac_sp)
+                    
+                    # check if species also in products (if so, already considered)
+                    if reac_sp in rxn.prod: continue
+                    
+                    nu = rxn.reac_nu[isp]
+                    sum_nu -= nu
+                    
+                    # get species object
+                    sp = next((sp for sp in specs if sp.name == reac_sp), None)
+                    if not sp:
+                        print 'Error: species ' + reac_sp + ' in reaction ' + str(reacs.index(rxn)) + ' not found.\n'
+                        sys.exit()
+                        
+                    # need temperature conditional for equilibrium constants
+                    line = '  if (T <= {:})'.format(sp.Trange[1])
+                    line += ' {\n'
+                    file.write(line)
+                    
+                    line = '    Kc = Kc - {:.2f} * '.format(nu)
+                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.lo[6], sp.lo[0], sp.lo[0] - 1.0, sp.lo[1]/2.0, sp.lo[2]/6.0, sp.lo[3]/12.0, sp.lo[4]/20.0, sp.lo[5])
+                    line += ';\n'
+                    file.write(line)
+                    
+                    file.write('  } else {\n')
+                    
+                    line = '    Kc = Kc - {:.2f} * '.format(nu)
+                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.hi[6], sp.hi[0], sp.hi[0] - 1.0, sp.hi[1]/2.0, sp.hi[2]/6.0, sp.hi[3]/12.0, sp.hi[4]/20.0, sp.hi[5])
+                    line += ';\n'
+                    file.write(line)
+                    
+                    file.write('  }\n\n')
+                
+                line = '  Kc = {:.8e} * exp(Kc)'.format((PA / RU)**sum_nu)
+                line += ';\n'
+                file.write(line)
+                
+            line = '  rev_rates[' + str(reacs.index(rxn)) + '] = '
+    
+            if rxn.thd and not rxn.pdep:
+                line += 'thd * '
+    
+            # products
+            for sp in rxn.prod:
+                isp = next(i for i in xrange(len(specs)) if specs[i].name == sp)
+                nu = rxn.prod_nu[rxn.prod.index(sp)]
+        
+                # check if stoichiometric coefficient is real or integer
+                if isinstance(nu, float):
+                    line += 'pow(C[' + str(isp) + '], ' + str(nu) + ') * '
+                else:
+                    # integer, so just use multiplication
+                    for i in range(nu):
+                        line += 'C[' + str(isp) + '] * '
+            
+            #
+            #### need to fix !!!!!!!!!!!!!!!!!!!!
+            #
+            # rate constant
+            if rxn.pdep:
+                line += 'kinf * F * Pr / (1.0 + Pr)'
+            elif rxn.plog:
+                line += 'kinf'
+            else:
+                # no pressure dependence, normal rate constant
+                line += rxn_rate_const(rxn.A, rxn.b, rxn.E)   
+    
+            line += ';\n'
+            file.write(line)
     
     file.write('} // end eval_rxn_rates\n')
     
