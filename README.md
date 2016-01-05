@@ -1,7 +1,7 @@
 create\_rate\_subs
 =======
 
-This utility creates species and reaction rate subroutines for either the CPU (in C) or GPU (in CUDA C) from a Chemkin- or Cantera-format reaction mechanism.
+This utility creates species and reaction rate subroutines for either C or CUDA from a Chemkin- or Cantera-format reaction mechanism.
 
 Usage
 -------
