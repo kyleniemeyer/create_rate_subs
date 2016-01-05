@@ -707,6 +707,12 @@ def read_mech(mech_filename, therm_filename):
                   )
             sys.exit(1)
 
+    # Check for missing thermo data again
+    missing_mw = [sp.name for sp in specs if not sp.mw]
+    if missing_mw:
+        print('Error: missing thermo data for ' + ', '.join(missing_mw))
+        sys.exit(1)
+
     return (elems, specs, reacs)
 
 
