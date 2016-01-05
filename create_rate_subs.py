@@ -1,1305 +1,233 @@
 #! /usr/bin/env python
+"""Creates source code for species production rate calculation."""
 
+# Python 2 compatibility
+from __future__ import division
+from __future__ import print_function
+
+# Standard libraries
+import sys
 import math
-from chem_utilities import *
-from mech_interpret import *
+from argparse import ArgumentParser
 
-def rxn_rate_const(A, b, E):
-    """Returns line with reaction rate calculation (after = sign).
-    """
-    
-    # form of the reaction rate constant (from e.g. Lu and Law POCS 2009):
-    # kf = A, if b = 0 & E = 0
-    # kf = exp(logA + b logT), if b !=  0 & E = 0
-    # kf = exp(logA + b logT - E/RT), if b != 0 & E != 0
-    # kf = exp(logA - E/RT), if b = 0 & E != 0
-    # kf = A T *b* T, if E = 0 & b is integer
-    
-    line = ''
-    logA = math.log(A)
-    
-    if not E:
-        # E = 0
-        if not b:
-            # b = 0
-            #line += str(A)
-            line += '{:.4e}'.format(A)
-        else:
-            # b != 0
-            if isinstance(b, int):
-                #line += str(A)
-                line += '{:.4e}'.format(A)
-                for i in range(b):
-                    line += ' * T'
-            else:
-                line += 'exp({:.4e} + '.format(logA) + str(b) + ' * logT)'
-    else:
-        # E != 0
-        if not b:
-            # b = 0
-            line += 'exp({:.4e}'.format(logA) + ' - ({:.4e} / T) )'.format(E)
-        else:
-            # b!= 0
-            line += 'exp({:.4e} + '.format(logA) + str(b) + ' * logT - ({:.4e} / T) )'.format(E)
-    
-    return line
+# Local imports
+import chem_utilities as chem
+import mech_interpret as mech
+import rate_subs as rate
+import utils
 
 
-def write_rxn_rates(proc_type, specs, reacs):
-    """Write reaction rate subroutine.
-    
-    Input
-    proc_type: processor type, either CPU or GPU
-    specs: list of species objects
-    reacs: list of reaction objects
+def write_main(path, lang, specs):
+    """Writes sample main file.
     """
-    
-    # reverse reactions?
-    rev_reacs = [rxn for rxn in reacs if rxn.rev]
-    
-    # first write header file
-    if proc_type == 'cpu':
-        file = open('rates.h', 'w')
-        file.write('#ifndef RATES_HEAD\n')
-        file.write('#define RATES_HEAD\n')
-        file.write('\n')
-        file.write('#include "header.h"\n')
-        file.write('\n')
-        if rev_reacs:
-            file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*, Real*);\n')
-            file.write('void eval_spec_rates (const Real*, const Real* Real*);\n')
-        else:
-            file.write('void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
-            file.write('void eval_spec_rates (const Real*, Real*);\n')
-        file.write('\n')
-        file.write('#endif\n')
-    
-        file.close()
-    elif proc_type == 'gpu':
-        file = open('rates.cuh', 'w')
-        file.write('#ifndef RATES_HEAD\n')
-        file.write('#define RATES_HEAD\n')
-        file.write('\n')
-        file.write('#include "header.h"\n')
-        file.write('\n')
-        if rev_reacs:
-            file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*, Real*);\n')
-            file.write('__device__ void eval_spec_rates (const Real*, const Real* Real*);\n')
-        else:
-            file.write('__device__ void eval_rxn_rates (const Real, const Real, const Real*, Real*);\n')
-            file.write('__device__ void eval_spec_rates (const Real*, Real*);\n')
-        file.write('\n')
-        file.write('#endif\n')
-        file.close()
-    
-    # now write main file
-    if proc_type == 'cpu':
-        filename = 'rxn_rates_cpu.c'
-        line = ''
-    elif proc_type == 'gpu':
-        filename = 'rxn_rates_gpu.cu'
-        line = '__device__ '
-    
-    file = open(filename, 'w')
-    
-    file.write('#include "header.h"\n\n')
-    
-    if rev_reacs:
-        line += 'void eval_rxn_rates (const Real T, const Real p, const Real* C, Real* fwd_rates, Real* rev_rates) {\n'
-    else:
-        line += 'void eval_rxn_rates (const Real T, const Real p, const Real* C, Real* fwd_rates ) {\n'
-    file.write(line)
-    
-    thd_flag = False
-    pdepFlag = False
-    
-    file.write('  Real logT = log(T);\n')
-    file.write('  Real m = p / ({:4e} * T);\n'.format(RU))
-    file.write('\n')
-    
-    if next((r for r in reacs if r.thd), None):
-        # third body variables
-        file.write('  // third body variable declarations\n')
-        file.write('  Real thd;\n')
-        file.write('\n')
-        thd_flag = True
-    
-    if next((r for r in reacs if r.pdep), None):
-        pdepFlag = True
-        
-        # pressure dependence variables
-        file.write('  // pressure dependence variable declarations\n')
-        if not thd_flag: file.write('  Real thd;\n')
-        file.write('  Real k0;\n')
-        file.write('  Real kinf;\n')
-        file.write('  Real F;\n')
-        file.write('  Real Pr;\n')
-        file.write('\n')
-        
-        if next((r for r in reacs if r.troe), None):
-            # troe variables
-            file.write('  // troe variable declarations\n')
-            file.write('  Real logPr;\n')
-            file.write('  Real logFcent;\n')
-            file.write('  Real logPrc;\n')
-            file.write('  Real n;\n')
-            file.write('  Real Fterm;\n')
-            file.write('\n')
-            
-            troe_flag = True
-        
-        if next((r for r in reacs if r.sri), None):
-            # sri variables
-            file.write('  // sri variable declarations\n')
-            if not troe_flag: file.write('  Real logPr;\n')
-            file.write('  Real x;\n')
-            file.write('\n')
-    if next((r for r in reacs if r.plog), None) and not pdepFlag:
-        file.write('  Real k0;\n')
-        file.write('  Real kinf;\n')
-    
-    file.write('\n')
-    
-    for rxn in reacs:
-        
-        # third bodies
-        if rxn.thd:
-            line = '  thd = m'
-            for sp in rxn.thd_body:
-                isp = specs.index( next((s for s in specs if s.name == sp[0]), None) )
-                if sp[1] > 1.0:
-                    line += ' + ' + str(sp[1] - 1.0) + ' * C[' + str(isp) + ']'
-                elif sp[1] < 1.0:
-                    line += ' - ' + str(1.0 - sp[1]) + ' * C[' + str(isp) + ']'
-            
-            line += ';\n'
-            file.write(line)
-        
-        # pressure dependence
-        if rxn.pdep:
-            if rxn.pdep_sp:
-                isp = next(i for i in xrange(len(specs)) if specs[i].name == rxn.pdep_sp)
-                line = '  thd = C[' + str(isp) + '];\n'
-                file.write(line)
-            
-            if rxn.troe:
-                # troe form
-                
-                # low-pressure limit rate:
-                line = '  k0 = '
-                if rxn.low:
-                    line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
-                else:
-                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-                line += ';\n'
-                file.write(line)
-                
-                # high-pressure limit rate:
-                line = '  kinf = '
-                if rxn.high:
-                    line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
-                else:
-                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-                line += ';\n'
-                file.write(line)
-                
-                # reduced pressure
-                file.write('  Pr = k0 * thd / kinf;\n')
-                
-                file.write('  logPr = log10(Pr);\n')
-                # need to check for negative parameters, and skip "-" sign if so
-                if rxn.troe_par[1] > 0.0:
-                    line = '  logFcent = log10( {:.4e} * exp(-T / {:.4e})'.format(1.0 - rxn.troe_par[0], rxn.troe_par[1])
-                else:
-                    line = '  logFcent = log10( {:.4e} * exp(T / {:.4e})'.format(1.0 - rxn.troe_par[0], abs(rxn.troe_par[1]))
-                
-                if rxn.troe_par[2] > 0.0:
-                    line += ' + {:.4e} * exp(-T / {:.4e})'.format(rxn.troe_par[0], rxn.troe_par[2])
-                else:
-                    line += ' + {:.4e} * exp(T / {:.4e})'.format(rxn.troe_par[0], abs(rxn.troe_par[2]))
-                
-                if len(rxn.troe_par) == 4:
-                    if rxn.troe_par[3] > 0.0:
-                        line += ' + exp(-{:.4e} / T)'.format(rxn.troe_par[3])
-                    else:
-                        line += ' + exp({:.4e} / T)'.format(abs(rxn.troe_par[3]))
-                
-                line += ' );\n'
-                file.write(line)
-                
-                #file.write('  c = -0.4 - 0.67 * logFcent;\n')
-                file.write('  logPrc = logPr - (0.4 + 0.67 * logFcent);\n')
-                file.write('  n = 0.75 - 1.27 * logFcent;\n')
-                #file.write('  Fterm = (logPr + c) / (n - 0.14 * (logPr + c));\n')
-                #file.write('  Fterm = logPrc / (n - 0.14 * logPrc);\n')
-                file.write('  Fterm = 1.0 / ( (n / logPrc) - 0.14 );\n')
-                file.write('  F = exp10( logFcent / (1.0 + Fterm * Fterm) );\n')
-                
-            elif rxn.sri:
-                # sri form
-                
-                # low-pressure limit rate:
-                line = '  k0 = '
-                if rxn.low:
-                    line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
-                else:
-                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-                line += ';\n'
-                file.write(line)
-                
-                # high-pressure limit rate:
-                line = '  kinf = '
-                if rxn.high:
-                    line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
-                else:
-                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-                line += ';\n'
-                file.write(line)
-                
-                # reduced pressure
-                file.write('  Pr = k0 * thd / kinf;\n')
-                
-                file.write('  logPr = log10(Pr);\n')
-                file.write('  x = 1.0 / (1.0 + logPr * logPr);\n')
-                
-                line = '  F = pow({:.4e} * '.format(rxn.sri[0])
-                # need to check for negative parameters, and skip "-" sign if so
-                if rxn.sri[1] > 0.0:
-                    line += 'exp(-{:.4e} / T)'.format(rxn.sri[1])
-                else:
-                    line += 'exp({:.4e} / T)'.format(abs(rxn.sri[1]))
-                
-                if rxn.sri[2] > 0.0:
-                    line += ' + exp(-T / {:.4e}), x)'.format(rxn.sri[2])
-                else:
-                    line += ' + exp(T / {:.4e}), x)'.format(abs(rxn.sri[2]))
-                
-                if len(rxn.sri) == 5:
-                    line += ' * {:.4e} * pow(T, {:.4e})'.format(rxn.sri[3], rxn.sri[4])
-                line += ';\n'
-                file.write(line)
-                
-            else:
-                # lindemann form
-                
-                # low-pressure limit rate:
-                line = '  k0 = '
-                if rxn.low:
-                    line += rxn_rate_const(rxn.low[0], rxn.low[1], rxn.low[2])
-                else:
-                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-                line += ';\n'
-                file.write(line)
-                
-                # high-pressure limit rate:
-                line = '  kinf = '
-                if rxn.high:
-                    line += rxn_rate_const(rxn.high[0], rxn.high[1], rxn.high[2])
-                else:
-                    line += rxn_rate_const(rxn.A, rxn.b, rxn.E)
-                line += ';\n'
-                file.write(line)
-                
-                # reduced pressure
-                file.write('  Pr = k0 * thd / kinf;\n')
-                file.write('  F = 1.0;\n')
-        elif rxn.plog:
-            # Plog form
-            # pressure dependent, but not falloff formulation
-            
-            # if pressure is less than or equal to lowest
-            seq = rxn.plog_par[0]
-            file.write('  if (p <= {:.4f}) {{\n'.format(seq[0]))
-            line = '    kinf = ' + rxn_rate_const(seq[1], seq[2], seq[3]) + ';\n'
-            file.write(line)
-            
-            for i in range(len(rxn.plog_par) - 1):
-                seq = rxn.plog_par[i]
-                seqNext = rxn.plog_par[i + 1]
-                file.write('  }} else if (p > {:.4f} && p <= {:.4f}) {{\n'.format(seq[0], seqNext[0]))
-                line = '    k0 = ' + rxn_rate_const(seq[1], seq[2], seq[3]) + ';\n'
-                file.write(line)
-                line = '    kinf = ' + rxn_rate_const(seqNext[1], seqNext[2], seqNext[3]) + ';\n'
-                file.write(line)
-                line = '    kinf = exp(log(k0) + (log(kinf) - log(k0)) * (log(p) - log({:.4f}))'.format(seq[0])
-                line += ' / (log({:.4f}) - log({:.4f})))'.format(seqNext[0], seq[0])
-                line += ';\n'
-                file.write(line)
-            
-            # if pressure is greater than or equal to highest
-            seq = rxn.plog_par[-1]
-            file.write('  }} else if (p >= {:.4f}) {{\n'.format(seq[0]))
-            line = '    kinf = ' + rxn_rate_const(seq[1], seq[2], seq[3]) + ';\n'
-            file.write(line)
-            file.write('  }\n')
-        
-        line = '  fwd_rates[' + str(reacs.index(rxn)) + '] = '
-        
-        if rxn.thd and not rxn.pdep:
-            line += 'thd * '
-        
-        # reactants
-        for sp in rxn.reac:
-            isp = next(i for i in xrange(len(specs)) if specs[i].name == sp)
-            nu = rxn.reac_nu[rxn.reac.index(sp)]
-            
-            # check if stoichiometric coefficient is real or integer
-            if isinstance(nu, float):
-                line += 'pow(C[' + str(isp) + '], ' + str(nu) + ') * '
-            else:
-                # integer, so just use multiplication
-                for i in range(nu):
-                    line += 'C[' + str(isp) + '] * '
-        
-        # rate constant
-        if rxn.pdep:
-            line += 'kinf * F * Pr / (1.0 + Pr)'
-        elif rxn.plog:
-            line += 'kinf'
-        else:
-            # no pressure dependence, normal rate constant
-            line += rxn_rate_const(rxn.A, rxn.b, rxn.E)   
-        
-        line += ';\n'
-        file.write(line)
-        
-        # reverse rate
-        if rxn.rev:
-            
-            if not rxn.rev_par:
-                # need to get equilibrium constants
-                line = '  Kc = 0.0;\n'
-                file.write(line)
-                
-                # sum of stoichiometric coefficients
-                sum_nu = 0
-                
-                # go through product species
-                for prod_sp in rxn.prod:
-                    isp = rxn.prod.index(prod_sp)
-                    
-                    # check if species also in reactants
-                    if prod_sp in rxn.reac:
-                        isp2 = rxn.reac.index(prod_sp)
-                        nu = rxn.prod_nu[isp] - rxn.reac_nu[isp2]
-                    else:
-                        nu = rxn.prod_nu[isp]
-                    
-                    # skip species with zero overall stoichiometric coefficient
-                    if (nu == 0):
-                        continue
-                    
-                    sum_nu += nu
-                    
-                    # get species object
-                    sp = next((sp for sp in specs if sp.name == prod_sp), None)
-                    if not sp:
-                        print 'Error: species ' + prod_sp + ' in reaction ' + str(reacs.index(rxn)) + ' not found.\n'
-                        sys.exit()
-                    
-                    # need temperature conditional for equilibrium constants
-                    line = '  if (T <= {:}) {{\n'.format(sp.Trange[1])
-                    file.write(line)
-                    
-                    if nu < 0:
-                        line = '    Kc = Kc - {:.2f} * '.format(abs(nu))
-                    elif nu > 0:
-                        line = '    Kc = Kc + {:.2f} * '.format(nu)
-                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.lo[6], sp.lo[0], sp.lo[0] - 1.0, sp.lo[1]/2.0, sp.lo[2]/6.0, sp.lo[3]/12.0, sp.lo[4]/20.0, sp.lo[5])
-                    line += ';\n'
-                    file.write(line)
-                    
-                    file.write('  } else {\n')
-                    
-                    if nu < 0:
-                        line = '    Kc = Kc - {:.2f} * '.format(abs(nu))
-                    elif nu > 0:
-                        line = '    Kc = Kc + {:.2f} * '.format(nu)
-                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.hi[6], sp.hi[0], sp.hi[0] - 1.0, sp.hi[1]/2.0, sp.hi[2]/6.0, sp.hi[3]/12.0, sp.hi[4]/20.0, sp.hi[5])
-                    line += ';\n'
-                    file.write(line)
-                    
-                    file.write('  }\n\n')
-                
-                # now loop through reactants
-                for reac_sp in rxn.reac:
-                    isp = rxn.reac.index(reac_sp)
-                    
-                    # check if species also in products (if so, already considered)
-                    if reac_sp in rxn.prod: continue
-                    
-                    nu = rxn.reac_nu[isp]
-                    sum_nu -= nu
-                    
-                    # get species object
-                    sp = next((sp for sp in specs if sp.name == reac_sp), None)
-                    if not sp:
-                        print 'Error: species ' + reac_sp + ' in reaction ' + str(reacs.index(rxn)) + ' not found.\n'
-                        sys.exit()
-                        
-                    # need temperature conditional for equilibrium constants
-                    line = '  if (T <= {:})'.format(sp.Trange[1])
-                    line += ' {\n'
-                    file.write(line)
-                    
-                    line = '    Kc = Kc - {:.2f} * '.format(nu)
-                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.lo[6], sp.lo[0], sp.lo[0] - 1.0, sp.lo[1]/2.0, sp.lo[2]/6.0, sp.lo[3]/12.0, sp.lo[4]/20.0, sp.lo[5])
-                    line += ';\n'
-                    file.write(line)
-                    
-                    file.write('  } else {\n')
-                    
-                    line = '    Kc = Kc - {:.2f} * '.format(nu)
-                    line += '({:.8e} - {:.8e} + {:.8e} * logT + T * ({:.8e} + T * ({:.8e} + T * ({:.8e} + {:.8e} * T) ) ) - {:.8e} / T )'.format(sp.hi[6], sp.hi[0], sp.hi[0] - 1.0, sp.hi[1]/2.0, sp.hi[2]/6.0, sp.hi[3]/12.0, sp.hi[4]/20.0, sp.hi[5])
-                    line += ';\n'
-                    file.write(line)
-                    
-                    file.write('  }\n\n')
-                
-                line = '  Kc = {:.8e} * exp(Kc)'.format((PA / RU)**sum_nu)
-                line += ';\n'
-                file.write(line)
-                
-            line = '  rev_rates[' + str(reacs.index(rxn)) + '] = '
-    
-            if rxn.thd and not rxn.pdep:
-                line += 'thd * '
-    
-            # products
-            for sp in rxn.prod:
-                isp = next(i for i in xrange(len(specs)) if specs[i].name == sp)
-                nu = rxn.prod_nu[rxn.prod.index(sp)]
-        
-                # check if stoichiometric coefficient is real or integer
-                if isinstance(nu, float):
-                    line += 'pow(C[' + str(isp) + '], ' + str(nu) + ') * '
-                else:
-                    # integer, so just use multiplication
-                    for i in range(nu):
-                        line += 'C[' + str(isp) + '] * '
-            
-            #
-            #### need to fix !!!!!!!!!!!!!!!!!!!!
-            #
-            # rate constant
-            if rxn.pdep:
-                line += 'kinf * F * Pr / (1.0 + Pr)'
-            elif rxn.plog:
-                line += 'kinf'
-            else:
-                # no pressure dependence, normal rate constant
-                line += rxn_rate_const(rxn.A, rxn.b, rxn.E)   
-    
-            line += ';\n'
-            file.write(line)
-    
-    file.write('} // end eval_rxn_rates\n')
-    
-    file.close()
-    
-    return
-
-
-def write_spec_rates(proc_type, specs, reacs):
-    """
-    
-    
-    """
-    
-    if proc_type == 'cpu':
-        filename = 'spec_rates_cpu.c'
-        line = ''
-    elif proc_type == 'gpu':
-        filename = 'spec_rates_gpu.cu'
-        line = '__device__ '
-    
-    file = open(filename, 'w')
-    
-    file.write('#include "header.h"\n\n')
-    
-    line += 'void eval_spec_rates (const Real* rates, Real* sp_rates ) {\n\n'
-    file.write(line)
-    
-    # loop through species
-    for sp in specs:
-        line = '  sp_rates[' + str(specs.index(sp)) + '] = '
-        # continuation line
-        cline = ' ' * ( len(line) - 3)
-        
-        isfirst = True
-        
-        inreac = False
-        
-        # loop through reactions
-        for rxn in reacs:
-            
-            # move to new line if current line is too long
-            if len(line) > 85:
-                lastLine = line
-                line += '\n'
-                # record position
-                lastPos = file.tell()
-                file.write(line)
-                line = cline
-            
-            # first check to see if in both products and reactants
-            if sp.name in rxn.prod and sp.name in rxn.reac:
-                inreac = True
-                pisp = rxn.prod.index(sp.name)
-                risp = rxn.reac.index(sp.name)
-                nu = rxn.prod_nu[pisp] - rxn.reac_nu[risp]
-                
-                if nu > 0.0:
-                    if not isfirst: line += ' + '
-                    if nu > 1:
-                        if isinstance(nu, int):
-                            line += str(nu) + '.0 * '
-                        else:
-                            line += '{:3} * '.format(nu)
-                    elif nu < 1.0:
-                        line += str(nu) + ' * '
-                    
-                    line += 'rates[' + str(reacs.index(rxn)) + ']'
-                elif nu < 0.0:
-                    if isfirst:
-                        line += '-'
-                    else:
-                        line += ' - '
-                    
-                    if nu < -1:
-                        if isinstance(nu, int):
-                            line += str(abs(nu)) + '.0 * '
-                        else:
-                            line += '{:3} * '.format(abs(nu))    
-                    elif nu > -1:
-                        line += str(abs(nu)) + ' * '
-                    
-                    line += 'rates[' + str(reacs.index(rxn)) + ']'
-                else:
-                    inreac = False
-                    continue
-                
-                if isfirst: isfirst = False
-                
-            # check products
-            elif sp.name in rxn.prod:
-                inreac = True
-                isp = rxn.prod.index(sp.name)
-                nu = rxn.prod_nu[isp]
-                
-                if not isfirst: line += ' + '
-                
-                if nu > 1:
-                    if isinstance(nu, int):
-                        line += str(nu) + '.0 * '
-                    else:
-                        line += '{:3} * '.format(nu)
-                elif nu < 1.0:
-                    line += str(nu) + ' * '
-                
-                line += 'rates[' + str(reacs.index(rxn)) + ']'
-                
-                if isfirst: isfirst = False
-                
-            # check reactants
-            elif sp.name in rxn.reac:
-                inreac = True
-                isp = rxn.reac.index(sp.name)
-                nu = rxn.reac_nu[isp]
-                
-                if isfirst:
-                    line += '-'
-                else:
-                    line += ' - '
-                
-                if nu > 1:
-                    if isinstance(nu, int):
-                        line += str(nu) + '.0 * '
-                    else:
-                        line += '{:3} * '.format(nu)
-                elif nu < 1.0:
-                    line += str(nu) + ' * '
-                
-                line += 'rates[' + str(reacs.index(rxn)) + ']'
-                
-                if isfirst: isfirst = False
-        
-        # species not participate in any reactions
-        if not inreac: line += '0.0'
-        
-        #
-        # done with this species
-        
-        # check if this line empty
-        if line.strip() is '':
-            # add semicolon to last line
-            file.seek(lastPos)
-            line = lastLine
-        
-        line += ';\n\n'
-        
-        file.write(line)
-    
-    
-    file.write('} // end eval_spec_rates\n')
-    file.close()
-    
-    return
-
-def write_chem_utils(proc_type, specs):
-    """
-    
-    """
-    
-    # first write header file
-    if proc_type == 'cpu':
-        file = open('chem_utils.h', 'w')
-        file.write('#ifndef CHEM_UTILS_HEAD\n')
-        file.write('#define CHEM_UTILS_HEAD\n')
-        file.write('\n')
-        file.write('#include "header.h"\n')
-        file.write('\n')
-        file.write('void eval_h (const Real, Real*);\n')
-        file.write('void eval_u (const Real, Real*);\n')
-        file.write('void eval_cv (const Real, Real*);\n')
-        file.write('void eval_cp (const Real, Real*);\n')
-        file.write('\n')
-        file.write('#endif\n')
-        
-        file.close()
-    elif proc_type == 'gpu':
-        file = open('chem_utils.cuh', 'w')
-        file.write('#ifndef CHEM_UTILS_HEAD\n')
-        file.write('#define CHEM_UTILS_HEAD\n')
-        file.write('\n')
-        file.write('#include "header.h"\n')
-        file.write('\n')
-        file.write('__device__ void eval_h (const Real, Real*);\n')
-        file.write('__device__ void eval_u (const Real, Real*);\n')
-        file.write('__device__ void eval_cv (const Real, Real*);\n')
-        file.write('__device__ void eval_cp (const Real, Real*);\n')
-        file.write('\n')
-        file.write('#endif\n')
-        file.close()
-    
-    # now main file
-    if proc_type == 'cpu':
-        filename = 'chem_utils_cpu.c'
-        pre = ''
-    elif proc_type == 'gpu':
-        filename = 'chem_utils_gpu.cu'
-        pre = '__device__ '
-    
-    file = open(filename, 'w')
-    
-    file.write('#include "header.h"\n\n')
-    
-    # enthalpy subroutine
-    line = pre + 'void eval_h (const Real T, Real* h) {\n\n'
-    file.write(line)
-    
-    # loop through species
-    for sp in specs:
-        line = '  if (T <= {:}) {{\n'.format(sp.Trange[1])
-        file.write(line)
-        
-        line = '    h[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) ) );\n'.format(sp.lo[5], sp.lo[0], sp.lo[1] / 2.0, sp.lo[2] / 3.0, sp.lo[3] / 4.0, sp.lo[4] / 5.0)
-        file.write(line)
-        
-        file.write('  } else {\n')
-        
-        line = '    h[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) ) );\n'.format(sp.hi[5], sp.hi[0], sp.hi[1] / 2.0, sp.hi[2] / 3.0, sp.hi[3] / 4.0, sp.hi[4] / 5.0)
-        file.write(line)
-        
-        file.write('  }\n\n')
-    
-    file.write('} // end eval_h\n\n')
-    
-    # internal energy subroutine
-    line = pre + 'void eval_u (const Real T, Real* u) {\n\n'
-    file.write(line)
-    
-    # loop through species
-    for sp in specs:
-        line = '  if (T <= {:}) {{\n'.format(sp.Trange[1])
-        file.write(line)
-        
-        line = '    u[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} + T * ( {:.8e} - 1.0 + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) ) );\n'.format(sp.lo[5], sp.lo[0], sp.lo[1] / 2.0, sp.lo[2] / 3.0, sp.lo[3] / 4.0, sp.lo[4] / 5.0)
-        file.write(line)
-        
-        file.write('  } else {\n')
-        
-        line = '    u[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} + T * ( {:.8e} - 1.0 + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) ) );\n'.format(sp.hi[5], sp.hi[0], sp.hi[1] / 2.0, sp.hi[2] / 3.0, sp.hi[3] / 4.0, sp.hi[4] / 5.0)
-        file.write(line)
-        
-        file.write('  }\n\n')
-    
-    file.write('} // end eval_u\n\n')
-    
-    # cv subroutine
-    line = pre + 'void eval_cv (const Real T, Real* cv) {\n\n'
-    file.write(line)
-    
-    # loop through species
-    for sp in specs:
-        line = '  if (T <= {:}) {{\n'.format(sp.Trange[1])
-        file.write(line)
-        
-        line = '    cv[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} - 1.0 + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) );\n'.format(sp.lo[0], sp.lo[1], sp.lo[2], sp.lo[3], sp.lo[4])
-        file.write(line)
-        
-        file.write('  } else {\n')
-        
-        line = '    cv[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} - 1.0 + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) );\n'.format(sp.hi[0], sp.hi[1], sp.hi[2], sp.hi[3], sp.hi[4])
-        file.write(line)
-        
-        file.write('  }\n\n')
-    
-    file.write('} // end eval_cv\n\n')
-    
-    # cp subroutine 
-    line = pre + 'void eval_cp (const Real T, Real* cp) {\n\n'
-    file.write(line)
-    
-    # loop through species
-    for sp in specs:
-        line = '  if (T <= {:}) {{\n'.format(sp.Trange[1])
-        file.write(line)
-        
-        line = '    cp[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) );\n'.format(sp.lo[0], sp.lo[1], sp.lo[2], sp.lo[3], sp.lo[4])
-        file.write(line)
-        
-        file.write('  } else {\n')
-        
-        line = '    cp[' + str(specs.index(sp)) + '] = {:e} * '.format(RU / sp.mw)
-        line += '( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + T * ( {:.8e} + {:.8e} * T ) ) ) );\n'.format(sp.hi[0], sp.hi[1], sp.hi[2], sp.hi[3], sp.hi[4])
-        file.write(line)
-        
-        file.write('  }\n\n')
-    
-    file.write('} // end eval_cp\n\n')
-    
-    file.close()
-    
-    return
-
-def write_derivs(proc_type, specs, num_r):
-    """
-    
-    
-    """
-    
-    # first write header file
-    if proc_type == 'cpu':
-        file = open('dydt.h', 'w')
-        file.write('#ifndef DYDT_HEAD\n')
-        file.write('#define DYDT_HEAD\n')
-        file.write('\n')
-        file.write('#include "header.h"\n')
-        file.write('\n')
-        file.write('void dydt (const Real, const Real, const Real*, Real*);\n')
-        file.write('\n')
-        file.write('#endif\n')
-        
-        file.close()
-    elif proc_type == 'gpu':
-        file = open('dydt.cuh', 'w')
-        file.write('#ifndef DYDT_HEAD\n')
-        file.write('#define DYDT_HEAD\n')
-        file.write('\n')
-        file.write('#include "header.h"\n')
-        file.write('\n')
-        file.write('__device__ void dydt (const Real, const Real, const Real*, Real*);\n')
-        file.write('\n')
-        file.write('#endif\n')
-        file.close()
-    
-    # now write main file
-    
-    if proc_type == 'cpu':
-        filename = 'dydt_cpu.c'
-        pre = ''
-    elif proc_type == 'gpu':
-        filename = 'dydt_gpu.cu'
-        pre = '__device__ '
-    
-    file = open(filename, 'w')
-    
-    file.write('#include "header.h"\n\n')
-    
-    # constant pressure
-    file.write('#if defined(CONP)\n\n')
-    
-    line = pre + 'void dydt (const Real t, const Real pres, const Real* y, Real* dy) {\n\n'
-    file.write(line)
-    
-    file.write('  Real T = y[0];\n\n')
-    
-    # calculation of density
-    file.write('  // mass-averaged density\n')
-    file.write('  Real rho;\n')
-    line = '  rho = '
-    isfirst = True
-    for sp in specs:
-        if len(line) > 70:
-            line += '\n'
-            file.write(line)
-            line = '     '
-        
-        if not isfirst: line += ' + '
-        line += '( y[' + str(specs.index(sp) + 1) + '] / {:} )'.format(sp.mw)
-        
-        isfirst = False
-    
-    line += ';\n'
-    file.write(line)
-    line = '  rho = pres / ({:e} * T * rho);\n\n'.format(RU)
-    file.write(line)
-    
-    # calculation of species molar concentrations
-    file.write('  // species molar concentrations\n')
-    file.write('  Real conc[{:}];\n'.format(len(specs)) )
-    # loop through species
-    for sp in specs:
-        isp = specs.index(sp)
-        line = '  conc[{:}] = rho * y[{:}] / {:};\n'.format(isp, isp + 1, sp.mw)
-        file.write(line)
-    
-    file.write('\n')
-    
-    # evaluate reaction rates
-    file.write('  // local array holding reaction rates\n')
-    file.write('  Real rates[{:}];\n'.format(num_r) )
-    file.write('  eval_rxn_rates ( T, pres, conc, rates );\n\n')
-    
-    # species rate of change of molar concentration
-    file.write('  // evaluate rate of change of species molar concentration\n')
-    file.write('  eval_spec_rates ( rates, &dy[1] );\n\n')
-    
-    # evaluate specific heat
-    file.write('  // local array holding constant pressure specific heat\n')
-    file.write('  Real cp[{:}];\n'.format(len(specs)) )
-    file.write('  eval_cp ( T, cp );\n\n')
-    
-    file.write('  // constant pressure mass-average specific heat\n')
-    line = '  Real cp_avg = '
-    isfirst = True
-    for sp in specs:
-        if len(line) > 70:
-            line += '\n'
-            file.write(line)
-            line = '             '
-        
-        if not isfirst: line += ' + '
-        
-        isp = specs.index(sp)
-        line += '( cp[{:}] * y[{:}] )'.format(isp, isp + 1)
-        
-        isfirst = False
-    
-    line += ';\n\n'
-    file.write(line)
-    
-    # evaluate enthalpy
-    file.write('  // local array for species enthalpies\n')
-    file.write('  Real h[{:}];\n'.format(len(specs)) )
-    file.write('  eval_h ( T, h );\n\n')
-    
-    # energy equation
-    file.write('  // rate of change of temperature\n')
-    line = '  dy[0] = ( -1.0 / ( rho * cp_avg ) ) * ( '
-    isfirst = True
-    for sp in specs:
-        if len(line) > 70:
-            line += '\n'
-            file.write(line)
-            line = '      '
-        
-        if not isfirst: line += ' + '
-        
-        isp = specs.index(sp)
-        line += '( dy[{:}] * h[{:}] * {:} )'.format(isp + 1, isp, sp.mw)
-        
-        isfirst = False
-    
-    line += ' );\n\n'
-    file.write(line)
-    
-    # rate of change of species mass fractions
-    file.write('  // calculate rate of change of species mass fractions\n')
-    for sp in specs:
-        isp = specs.index(sp)
-        line = '  dy[{:}] = dy[{:}] * {:} / rho;\n'.format(isp + 1, isp + 1, sp.mw)
-        file.write(line)
-    
-    file.write('\n')
-    file.write('} // end dydt\n\n')
-    
-    
-    # constant volume
-    file.write('#elif defined(CONV)\n\n')
-    
-    line = pre + 'void dydt (const Real t, const Real rho, const Real* y, Real* dy ) {\n\n'
-    file.write(line)
-    
-    file.write('  Real T = y[0];\n\n')
-    
-    # calculation of pressure
-    file.write('  // pressure\n')
-    file.write('  Real pres;\n')
-    line = '  pres = '
-    isfirst = True
-    for sp in specs:
-        if len(line) > 70:
-            line += '\n'
-            file.write(line)
-            line = '      '
-        
-        if not isfirst: line += ' + '
-        line += '( y[' + str(specs.index(sp) + 1) + '] / {:} )'.format(sp.mw)
-        
-        isfirst = False
-    
-    line += ';\n'
-    file.write(line)
-    line = '  pres = rho * {:e} * T * pres;\n\n'.format(RU)
-    file.write(line)
-    
-    # calculation of species molar concentrations
-    file.write('  // species molar concentrations\n')
-    file.write('  Real conc[{:}];\n'.format(len(specs)) )
-    # loop through species
-    for sp in specs:
-        isp = specs.index(sp)
-        line = '  conc[{:}] = rho * y[{:}] / {:};\n'.format(isp, isp + 1, sp.mw)
-        file.write(line)
-    
-    file.write('\n')
-    
-    # evaluate reaction rates
-    file.write('  // local array holding reaction rates\n')
-    file.write('  Real rates[{:}];\n'.format(num_r) )
-    file.write('  eval_rxn_rates ( T, pres, conc, rates );\n\n')
-    
-    # species rate of change of molar concentration
-    file.write('  // evaluate rate of change of species molar concentration\n')
-    file.write('  eval_spec_rates ( rates, &dy[1] );\n\n')
-    
-    # evaluate specific heat
-    file.write('  // local array holding constant volume specific heat\n')
-    file.write('  Real cv[{:}];\n'.format(len(specs)) )
-    file.write('  eval_cv ( T, cv );\n\n')
-    
-    file.write('  // constant volume mass-average specific heat\n')
-    line = '  Real cv_avg = '
-    isfirst = True
-    for sp in specs:
-        if len(line) > 70:
-            line += '\n'
-            file.write(line)
-            line = '             '
-        
-        if not isfirst: line += ' + '
-        
-        isp = specs.index(sp)
-        line += '( cv[{:}] * y[{:}] )'.format(isp, isp + 1)
-        
-        isfirst = False
-    
-    line += ';\n\n'
-    file.write(line)
-    
-    # evaluate internal energy
-    file.write('  // local array for species internal energies\n')
-    file.write('  Real u[{:}];\n'.format(len(specs)) )
-    file.write('  eval_u ( T, u );\n\n')
-    
-    # energy equation
-    file.write('  // rate of change of temperature\n')
-    line = '  dy[0] = ( -1.0 / ( rho * cv_avg ) ) * ( '
-    isfirst = True
-    for sp in specs:
-        if len(line) > 70:
-            line += '\n'
-            file.write(line)
-            line = '      '
-        
-        if not isfirst: line += ' + '
-        
-        isp = specs.index(sp)
-        line += '( dy[{:}] * u[{:}] * {:} )'.format(isp + 1, isp, sp.mw)
-        
-        isfirst = False
-    
-    line += ' );\n\n'
-    file.write(line)
-    
-    # rate of change of species mass fractions
-    file.write('  // calculate rate of change of species mass fractions\n')
-    for sp in specs:
-        isp = specs.index(sp)
-        line = '  dy[{:}] = dy[{:}] * {:} / rho;\n'.format(isp + 1, isp + 1, sp.mw)
-        file.write(line)
-    
-    file.write('\n')
-    file.write('} // end dydt\n\n')
-    
-    file.write('#endif\n')
-    
-    file.close()
-    
-    return
-
-
-def write_mass_mole(specs):
-    """
-    
-    """
-    file = open('mass_mole.c', 'w')
-    
-    file.write('#include "header.h"\n\n')
-    
-    file.write('/** Function converting species mole fractions to mass fractions.\n')
-    file.write(' *\n')
-    file.write(' * \param[in]  X  array of species mole fractions\n')
-    file.write(' * \param[out] Y  array of species mass fractions\n')
-    file.write(' */\n')
-    file.write('void mole2mass ( Real * X, Real * Y ) {\n\n')
-    file.write('  // average molecular weight\n')
-    file.write('  Real mw_avg = 0.0;\n')
-    for sp in specs:
-        file.write('  mw_avg += X[{:}] * {:};\n'.format(specs.index(sp), sp.mw))
-    file.write('\n')
-    
-    file.write('  // calculate mass fractions\n')
-    for sp in specs:
-        isp = specs.index(sp)
-        file.write('  Y[{:}] = X[{:}] * {:} / mw_avg;\n'.format(isp, isp, sp.mw))
-    file.write('\n')
-    file.write('} // end mole2mass\n\n')
-    
-    file.write('/** Function converting species mass fractions to mole fractions.\n')
-    file.write(' *\n')
-    file.write(' * \param[in]  Y  array of species mass fractions\n')
-    file.write(' * \param[out] X  array of species mole fractions\n')
-    file.write(' */\n')
-    file.write('void mass2mole ( Real * Y, Real * X ) {\n\n')
-    file.write('  // average molecular weight\n')
-    file.write('  Real mw_avg = 0.0;\n')
-    for sp in specs:
-        file.write('  mw_avg += Y[{:}] / {:};\n'.format(specs.index(sp), sp.mw))
-    file.write('  mw_avg = 1.0 / mw_avg;\n')
-    file.write('\n')
-    
-    file.write('  // calculate mass fractions\n')
-    for sp in specs:
-        isp = specs.index(sp)
-        file.write('  X[{:}] = Y[{:}] * mw_avg / {:};\n'.format(isp, isp, sp.mw))
-    file.write('\n')
-    file.write('} // end mass2mole\n\n')
-    
-    file.close()
-    return
-
-
-def write_main(proc_type, specs):
-    """
-    
-    """
-    if proc_type == 'cpu':
+    if lang == 'c':
         filename = 'main_cpu.c'
         pre = ''
-    elif proc_type == 'gpu':
+    elif lang == 'cuda':
         filename = 'main_gpu.cu'
         pre = '__global__ '
-    
-    nn = len(specs) + 1
-    
-    file = open(filename, 'w')
-    
+    elif lang == 'fortran':
+        filename = 'main.f90'
+        pre = ''
+    elif lang == 'matlab':
+        filename = 'main.m'
+        pre = ''
+
+    num_eq = len(specs) + 1
+
+    file = open(path + filename, 'w')
+
     # include other subroutine files
     file.write('#include "header.h"\n\n')
-    
-    if proc_type == 'cpu':
+
+    if lang == 'c':
         file.write('#include "chem_utils.h"\n')
         file.write('#include "rates.h"\n')
-    else:
+    elif lang == 'cuda':
         file.write('/** CUDA libraries */\n')
         file.write('#include <cuda.h>\n')
         file.write('#include <cutil.h>\n')
         file.write('\n')
-        
+
         file.write('#include "chem_utils_gpu.cuh"\n')
         file.write('#include "rates.cuh"\n')
-    
+
     file.write('///////////////////////////////////////////////////////\n\n')
-    
-    file.write(pre + 'void intDriver (const Real t, const Real h, const Real pr, Real* y_global ) {\n\n')
-    
-    if proc_type == 'cpu':
+
+    file.write(pre + 'void intDriver (const Real t, const Real h, '
+              'const Real pr, Real* y_global ) {\n\n')
+
+    if lang == 'c':
         file.write('  // loop over all "threads"\n')
         file.write('  for ( uint tid = 0; tid < NUM; ++tid ) {\n\n')
         tab = '    '
-    else:
-        file.write('  // unique thread ID, based on local ID in block and block ID\n')
-        file.write('  uint tid = threadIdx.x + ( blockDim.x * blockIdx.x );\n\n')
+    elif lang == 'cuda':
+        file.write('  // unique thread ID, based on local '
+                   'ID in block and block ID\n')
+        file.write('  uint tid = threadIdx.x + '
+                   '( blockDim.x * blockIdx.x )' +
+                   utils.line_end[lang] + '\n')
         tab = '  '
-    
+
     file.write(tab + '// local array with initial values\n')
-    file.write(tab + 'Real y0_local[' + str(nn) + '];\n')
+    file.write(tab + 'Real y0_local[' + str(num_eq) + ']' +
+               utils.line_end[lang])
     file.write(tab + '// local array with integrated values\n')
-    file.write(tab + 'Real yn_local[' + str(nn) + '];\n\n')
-    
-    file.write(tab + '// load local array with initial values from global array\n')
-    for i in xrange(nn):
-        line = tab + 'y0_local[' + str(i) + '] = y_global[tid + NUM * ' + str(i) + '];\n'
+    file.write(tab + 'Real yn_local[' + str(num_eq) + ']' +
+               utils.line_end[lang] + '\n')
+
+    file.write(tab + '// load local array with initial '
+               'values from global array\n')
+    for i in xrange(num_eq):
+        line = (tab + 'y0_local[' + str(i) + '] = '
+                'y_global[tid + NUM * ' + str(i) + ']' +
+                utils.line_end[lang])
         file.write(line)
     file.write('\n')
-    
+
     file.write(tab + '// call integrator for one time step\n')
-    file.write(tab + 'INTEGRATOR ( t, pr, h, y0_local, yn_local );\n\n')
-    
+    file.write(tab + 'INTEGRATOR ( t, pr, h, y0_local, yn_local )' +
+               utils.line_end[lang] + '\n')
+
     file.write(tab + '// update global array with integrated values\n')
-    for i in xrange(nn):
-        line = tab + 'y_global[tid + NUM * ' + str(i) + '] = yn_local[' + str(i) + '];\n'
+    for i in xrange(num_eq):
+        line = (tab + 'y_global[tid + NUM * ' + str(i) + '] = '
+                'yn_local[' + str(i) + ']' + utils.line_end[lang])
         file.write(line)
     file.write('\n')
-    
-    if proc_type == 'cpu':
+
+    if lang == 'c':
         file.write('  } // end tid loop\n\n')
-    
+
     file.write('} // end intDriver\n\n')
-    
+
     file.write('///////////////////////////////////////////////////////\n\n')
-    
+
     file.write('int main ( void ) {\n\n')
-    
-    if proc_type == 'cpu':
-        file.write('  // print number of threads\n')
-        file.write('  printf ("# threads: %d\\n", NUM);\n\n')
+
+    if lang == 'c':
+        file.write('  // print number of threads\n' +
+                   '  printf ("# threads: %d\\n", NUM)' +
+                   utils.line_end[lang] + '\n')
     else:
-        file.write('  // print number of threads and block size\n')
-        file.write('  printf ("# threads: %d \\t block size: %d\\n", NUM, BLOCK);\n\n')
-    
+        file.write('  // print number of threads and block size\n' +
+                   '  printf ("# threads: %d \\t block size: %d\\n", '
+                   'NUM, BLOCK)' + utils.line_end[lang] + '\n')
+
     file.write('  // starting time (usually 0.0), units [s]\n')
-    file.write('  Real t0 = 0.0;\n')
+    file.write('  Real t0 = 0.0' + utils.line_end[lang])
     file.write('  // ending time of integration, units [s]\n')
-    file.write('  Real tend = 1.0e-7;\n')
+    file.write('  Real tend = 1.0e-7' + utils.line_end[lang])
     file.write('  // time step size, units [s]\n')
-    file.write('  Real h = 1.0e-8;\n')
+    file.write('  Real h = 1.0e-8' + utils.line_end[lang])
     file.write('  // number of steps, based on time range and step size\n')
-    file.write('  uint steps = (tend - t0)/h;\n\n')
-    
+    file.write('  uint steps = (tend - t0)/h' + utils.line_end[lang] + '\n')
+
     file.write('  // species indices:\n')
     for sp in specs:
         file.write('  // ' + str(specs.index(sp)) + ' ' + sp.name + '\n')
     file.write('\n')
-    
+
     file.write('  // initial mole fractions\n')
-    file.write('  Real Xi[{:}];\n'.format(nn - 1))
-    file.write('  for ( int j = 0; j < {:}; ++ j ) {{\n'.format(nn - 1))
-    file.write('    Xi[j] = 0.0;\n')
+    file.write('  Real Xi[{:}]'.format(num_eq - 1) + utils.line_end[lang])
+    file.write('  for ( int j = 0; j < {:}; ++ j ) {{\n'.format(num_eq - 1))
+    file.write('    Xi[j] = 0.0' + utils.line_end[lang])
     file.write('  }\n')
     file.write('\n')
-    
+
     file.write('  //\n  // set initial mole fractions here\n  //\n\n')
     file.write('  // normalize mole fractions to sum to 1\n')
-    file.write('  Real Xsum = 0.0;\n')
-    file.write('  for ( int j = 0; j < {:}; ++ j ) {{\n'.format(nn - 1))
-    file.write('    Xsum += Xi[j];\n')
+    file.write('  Real Xsum = 0.0' + utils.line_end[lang])
+    file.write('  for ( int j = 0; j < {:}; ++ j ) {{\n'.format(num_eq - 1))
+    file.write('    Xsum += Xi[j]' + utils.line_end[lang])
     file.write('  }\n')
-    file.write('  for ( int j = 0; j < {:}; ++ j ) {{\n'.format(nn - 1))
-    file.write('    Xi[j] /= Xsum;\n')
+    file.write('  for ( int j = 0; j < {:}; ++ j ) {{\n'.format(num_eq - 1))
+    file.write('    Xi[j] /= Xsum' + utils.line_end[lang])
     file.write('  }\n\n')
-    
+
     file.write('  // initial mass fractions\n')
-    file.write('  Real Yi[{:}];\n'.format(nn - 1))
-    file.write('  mole2mass ( Xi, Yi );\n\n')
-    
+    file.write('  Real Yi[{:}]'.format(num_eq - 1) + utils.line_end[lang])
+    file.write('  mole2mass ( Xi, Yi )' + utils.line_end[lang] + '\n')
+
     file.write('  // size of data array in bytes\n')
-    file.write('  uint size = NUM * sizeof(Real) * {:};\n\n'.format(nn))
-    
+    file.write('  uint size = NUM * sizeof(Real) * {:}' +
+               utils.line_end[lang] + '\n'.format(num_eq))
+
     file.write('  // pointer to data on host memory\n')
-    file.write('  Real *y_host;\n')
+    file.write('  Real *y_host' + utils.line_end[lang])
     file.write('  // allocate memory for all data on host\n')
-    file.write('  y_host = (Real *) malloc (size);\n\n')
-    
+    file.write('  y_host = (Real *) malloc (size)' +
+               utils.line_end[lang] + '\n')
+
     file.write('  // set initial pressure, units [dyn/cm^2]\n')
     file.write('  // 1 atm = 1.01325e6 dyn/cm^2\n')
-    file.write('  Real pres = 1.01325e6;\n\n')
+    file.write('  Real pres = 1.01325e6' + utils.line_end[lang])
     file.write('  // set initial temperature, units [K]\n')
-    file.write('  Real T0 = 1600.0;\n\n')
-    
+    file.write('  Real T0 = 1600.0' + utils.line_end[lang])
+
     file.write('  // load temperature and mass fractions for all threads (cells)\n')
     file.write('  for ( int i = 0; i < NUM; ++i ) {\n')
     file.write('    y_host[i] = T0;\n')
     file.write('    // loop through species\n')
-    file.write('    for ( int j = 1; j < {:}; ++j) {{\n'.format(nn))
+    file.write('    for ( int j = 1; j < {:}; ++j) {{\n'.format(num_eq))
     file.write('      y_host[i + NUM * j] = Yi[j - 1];\n')
     file.write('    }\n')
     file.write('  }\n\n')
-    
+
     file.write('#ifdef CONV\n')
     file.write('  // if constant volume, calculate density\n')
     file.write('  Real rho = 0.0;\n')
     for sp in specs:
         file.write('  rho += Xi[{:}] * {:};\n'.format(specs.index(sp), sp.mw))
-    file.write('  rho = pres * rho / ( {:} * T0 );\n'.format(RU))
+    file.write('  rho = pres * rho / ( {:} * T0 );\n'.format(chem.RU))
     file.write('#endif\n\n')
-    
+
     file.write('#ifdef IGN\n')
     file.write('  // flag for ignition\n')
     file.write('  bool ign_flag = false;\n')
     file.write('  // ignition delay time, units [s]\n')
     file.write('  Real t_ign = 0.0;\n')
     file.write('#endif\n\n')
-    
+
     file.write('  // set time to initial time\n')
     file.write('  Real t = t0;\n\n')
-    
-    if proc_type == 'cpu':
+
+    if lang == 'c':
         file.write('  // timer start point\n')
         file.write('  clock_t t_start;\n')
         file.write('  // timer end point\n')
         file.write('  clock_t t_end;\n\n')
-        
+
         file.write('  // start timer\n')
         file.write('  t_start = clock();\n\n')
-    else:
+    elif lang == 'cuda':
         file.write('  // set GPU card to one other than primary\n')
         file.write('  cudaSetDevice (1);\n\n')
-        
+
         file.write('  // integer holding timer time\n')
         file.write('  uint timer_compute = 0;\n\n')
         file.write('  // create timer object\n')
         file.write('  CUT_SAFE_CALL ( cutCreateTimer ( &timer_compute ) );\n')
         file.write('  // start timer\n')
         file.write('  CUT_SAFE_CALL ( cutStartTimer ( timer_compute ) );\n\n')
-    
+
     file.write('  // pointer to memory used for integration\n')
     file.write('  Real *y_device;\n')
-    
-    if proc_type == 'cpu':
+
+    if lang == 'c':
         file.write('  // allocate memory\n')
         file.write('  y_device = (Real *) malloc ( size );\n\n')
-    else:
+    elif lang == 'cuda':
         file.write('  // allocate memory on device\n')
         file.write('  CUDA_SAFE_CALL ( cudaMalloc ( (void**) &y_device, size ) );\n\n')
-    
+
     # time integration loop
     file.write('  // time integration loop\n')
     file.write('  while ( t < tend ) {\n\n')
-    if proc_type == 'cpu':
+    if lang == 'c':
         file.write('    // copy local array to "global" array\n')
         file.write('    memcpy ( y_device, y_host, size );\n\n')
-        
+
         file.write('#if defined(CONP)\n')
         file.write('    // constant pressure case\n')
         file.write('    intDriver ( t, h, pres, y_device );\n')
@@ -1307,10 +235,10 @@ def write_main(proc_type, specs):
         file.write('    // constant volume case\n')
         file.write('    intDriver ( t, h, rho, y_device );\n')
         file.write('#endif\n\n')
-        
+
         file.write('    // transfer integrated data back to local array\n')
         file.write('    memcpy ( y_host, y_device, size );\n\n')
-    else:
+    elif lang == 'cuda':
         file.write('    // copy data on host to device\n')
         file.write('    CUDA_SAFE_CALL ( cudaMemcpy ( y_device, y_host, size, cudaMemcpyHostToDevice ) );\n\n')
         file.write('    //\n    // kernel invocation\n    //\n\n')
@@ -1318,7 +246,7 @@ def write_main(proc_type, specs):
         file.write('    dim3 dimBlock ( BLOCK, 1 );\n')
         file.write('    // grid size\n')
         file.write('    dim3 dimGrid ( NUM / BLOCK, 1 );\n\n')
-        
+
         file.write('#if defined(CONP)\n')
         file.write('    // constant pressure case\n')
         file.write('    intDriver <<< dimGrid, dimBlock >>> ( t, h, pres, y_device );\n')
@@ -1326,15 +254,15 @@ def write_main(proc_type, specs):
         file.write('    // constant volume case\n')
         file.write('    intDriver <<< dimGrid, dimBlock >>> ( t, h, rho, y_device );\n')
         file.write('#endif\n\n')
-        
+
         file.write('#ifdef DEBUG\n')
         file.write('    // barrier thread synchronization\n')
         file.write('    CUDA_SAFE_CALL ( cudaThreadSynchronize() );\n')
         file.write('#endif\n\n')
-        
+
         file.write('    // transfer integrated data from device back to host\n')
         file.write('    CUDA_SAFE_CALL ( cudaMemcpy ( y_host, y_device, size, cudaMemcpyDeviceToHost ) );\n\n')
-    
+
     # check for ignition
     file.write('#ifdef IGN\n')
     file.write('    // determine if ignition has occurred\n')
@@ -1343,73 +271,72 @@ def write_main(proc_type, specs):
     file.write('      t_ign = t;\n')
     file.write('    }\n')
     file.write('#endif\n\n')
-    
+
     file.write('    // increase time by one step\n')
     file.write('    t += h;\n\n')
     file.write('  } // end time loop\n\n')
-    
+
     # after integration, free memory and stop timer
-    if proc_type == 'cpu':
+    if lang == 'c':
         file.write('  // free data array from global memory\n')
         file.write('  free ( y_device );\n\n')
-        
+
         file.write('  // stop timer\n')
         file.write('  t_end = clock();\n\n')
-        
+
         file.write('  // get clock tiem in seconds\n')
         file.write('  Real tim = ( t_end - t_start ) / ( (Real)(CLOCKS_PER_SEC) );\n')
-    else:
+    elif lang ==  'cuda':
         file.write('  // free data array from device memory\n')
         file.write('  CUDA_SAFE_CALL ( cudaFree ( y_device ) );\n\n')
-        
+
         file.write('  // stop timer\n')
         file.write('  CUT_SAFE_CALL ( cutStopTimer ( timer_compute ) );\n\n')
-        
+
         file.write('  // get clock time in seconds; cutGetTimerValue() returns ms\n')
         file.write('  Real tim = cutGetTimerValue ( timer_compute ) / 1000.0;\n')
     file.write('  tim = tim / ( (Real)(steps) );\n')
-    
+
     # print time
     file.write('  // print time per step and time per step per thread\n')
-    file.write('  printf("' + proc_type.upper() + ' time per step: %e (s)\\t%e (s/thread)\\n", tim, tim / NUM);\n\n')
-    
+    file.write('  printf("Compute time per step: %e (s)\\t%e (s/thread)\\n", tim, tim / NUM);\n\n')
+
     file.write('#ifdef CONV\n')
     file.write('  // calculate final pressure for constant volume case\n')
     file.write('  pres = 0.0;\n')
     for sp in specs:
         file.write('  pres += y_host[1 + NUM * {:}] / {:};\n'.format(specs.index(sp), sp.mw))
-    file.write('  pres = rho * {:} * y_host[0] * pres;\n'.format(RU))
+    file.write('  pres = rho * {:} * y_host[0] * pres;\n'.format(chem.RU))
     file.write('#endif\n\n')
-    
+
     file.write('#ifdef DEBUG\n')
     file.write('  // if debugging/testing, print temperature and first species mass fraction of last thread\n')
     file.write('  printf ("T[NUM-1]: %f, Yh: %e\\n", y_host[NUM-1], y_host[NUM-1+NUM]);\n')
     file.write('#endif\n\n')
-    
+
     file.write('#ifdef IGN\n')
     file.write('  // if calculating ignition delay, print ign delay; units [s]\n')
     file.write('  printf ( "Ignition delay: %le\\n", t_ign );\n')
     file.write('#endif\n\n')
-    
+
     file.write('  // free local data array\n')
     file.write('  free ( y_host );\n\n')
-    
+
     file.write('  return 0;\n')
     file.write('} // end main\n')
-    
+
     file.close()
     return
 
 
-def write_header(specs):
-    """
-    
+def write_header(path, lang, specs):
+    """Writes C header file.
     """
     nsp = len(specs)
-    nn = nsp + 1
-    
-    file = open('header.h', 'w')
-    
+    num_eq = nsp + 1
+
+    file = open(path + 'header.h', 'w')
+
     file.write('#include <stdlib.h>\n')
     file.write('#include <stdio.h>\n')
     file.write('#include <assert.h>\n')
@@ -1418,73 +345,73 @@ def write_header(specs):
     file.write('#include <string.h>\n')
     file.write('#include <stdbool.h>\n')
     file.write('\n')
-    
+
     file.write('/** number of threads */\n')
     file.write('#define NUM 65536\n')
     file.write('/** GPU block size */\n')
     file.write('#define BLOCK 128\n')
     file.write('\n')
-    
+
     file.write(
-    '/** Sets precision as double or float. */\n' + 
-    '#define DOUBLE\n' + 
-    '#ifdef DOUBLE\n' + 
-    '  /** Define Real as double. */\n' + 
-    '  #define Real double\n' + 
-    '\n' + 
-    '  /** Double precision ONE. */\n' + 
-    '  #define ONE 1.0\n' + 
-    '  /** Double precision TWO. */\n' + 
-    '  #define TWO 2.0\n' + 
-    '  /** Double precision THREE. */\n' + 
-    '  #define THREE 3.0\n' + 
-    '  /** Double precision FOUR. */\n' + 
-    '  #define FOUR 4.0\n' + 
-    '#else\n' + 
-    '  /** Define Real as float. */\n' + 
-    '  #define Real float\n' + 
-    '\n' + 
-    '  /** Single precision ONE. */\n' + 
-    '  #define ONE 1.0f\n' + 
-    '  /** Single precision (float) TWO. */\n' + 
-    '  #define TWO 2.0f\n' + 
-    '  /** Single precision THREE. */\n' + 
-    '  #define THREE 3.0f\n' + 
-    '  /** Single precision FOUR. */\n' + 
-    '  #define FOUR 4.0f\n' + 
-    '#endif\n' + 
-    '\n' + 
-    '/** DEBUG definition. Used for barrier synchronization after kernel in GPU code. */\n' + 
-    '#define DEBUG\n' + 
-    '\n' + 
-    '/** IGN definition. Used to flag ignition delay calculation. */\n' + 
-    '//#define IGN\n' + 
-    '\n' + 
-    '/** PRINT definition. Used to flag printing of output values. */\n' + 
-    '//#define PRINT\n' + 
-    '\n' + 
-    '/** Definition of problem type.\n' + 
-    ' * CONV is constant volume.\n' + 
-    ' * CONP is constant pressure.\n' + 
-    ' */\n' + 
+    '/** Sets precision as double or float. */\n' +
+    '#define DOUBLE\n' +
+    '#ifdef DOUBLE\n' +
+    '  /** Define Real as double. */\n' +
+    '  #define Real double\n' +
+    '\n' +
+    '  /** Double precision ONE. */\n' +
+    '  #define ONE 1.0\n' +
+    '  /** Double precision TWO. */\n' +
+    '  #define TWO 2.0\n' +
+    '  /** Double precision THREE. */\n' +
+    '  #define THREE 3.0\n' +
+    '  /** Double precision FOUR. */\n' +
+    '  #define FOUR 4.0\n' +
+    '#else\n' +
+    '  /** Define Real as float. */\n' +
+    '  #define Real float\n' +
+    '\n' +
+    '  /** Single precision ONE. */\n' +
+    '  #define ONE 1.0f\n' +
+    '  /** Single precision (float) TWO. */\n' +
+    '  #define TWO 2.0f\n' +
+    '  /** Single precision THREE. */\n' +
+    '  #define THREE 3.0f\n' +
+    '  /** Single precision FOUR. */\n' +
+    '  #define FOUR 4.0f\n' +
+    '#endif\n' +
+    '\n' +
+    '/** DEBUG definition. Used for barrier synchronization after kernel in GPU code. */\n' +
+    '#define DEBUG\n' +
+    '\n' +
+    '/** IGN definition. Used to flag ignition delay calculation. */\n' +
+    '//#define IGN\n' +
+    '\n' +
+    '/** PRINT definition. Used to flag printing of output values. */\n' +
+    '//#define PRINT\n' +
+    '\n' +
+    '/** Definition of problem type.\n' +
+    ' * CONV is constant volume.\n' +
+    ' * CONP is constant pressure.\n' +
+    ' */\n' +
     '#define CONV\n\n')
-    
+
     file.write('/** Number of species.\n')
     for sp in specs:
         file.write(' * {:} {:}\n'.format(specs.index(sp), sp.name))
     file.write(' */\n')
     file.write('#define NSP {:}\n'.format(nsp))
-    
+
     file.write('/** Number of variables. NN = NSP + 1 (temperature). */\n')
-    file.write('#define NN {:}\n'.format(nn))
+    file.write('#define NN {:}\n'.format(num_eq))
     file.write('\n')
-    
+
     file.write('/** Unsigned int typedef. */\n')
     file.write('typedef unsigned int uint;\n')
     file.write('/** Unsigned short int typedef. */\n')
     file.write('typedef unsigned short int usint;\n')
     file.write('\n')
-    
+
     file.write('#ifdef __cplusplus\n')
     file.write('extern "C" {\n')
     file.write('#endif\n')
@@ -1494,105 +421,169 @@ def write_header(specs):
     file.write('}\n')
     file.write('#endif\n')
     file.write('\n')
-    
+
     file.close()
-    
+
     return
 
 
-def create_rate_subs(proc_type, mech_name, therm_name = None):
-    """Create species and reaction rate CPU and GPU C subroutines from mechanism.
-    
-    Mechanism must have only irreversible reactions.
-    
-    Input
-    proc_type: processor type, either CPU or GPU
-    mech_name: string with reaction mechanism filename (e.g. 'mech.dat')
-    therm_name: string with thermodynamic database filename (e.g. 'therm.dat') or nothing if info in mech_name
+def create_rate_subs(lang, mech_name, therm_name=None, last_spec=None):
+    """Create rate subroutines from mechanism.
+
+    Parameters
+    ----------
+    lang : {'c', 'cuda', 'fortran', 'matlab'}
+        Language type.
+    mech_name : str
+        Reaction mechanism filename (e.g. 'mech.dat').
+    therm_name : str, optional
+        Thermodynamic database filename (e.g. 'therm.dat')
+        or nothing if info in mechanism file.
+    last_spec : str, optional
+        If specified, the species to assign to the last index.
+        Typically should be N2, Ar, He or another inert bath gas
+
+    Returns
+    -------
+    None
+
     """
-    import sys
-    
-    elems = []
-    specs = []
-    reacs = []
-    
-    proc_type = proc_type.lower()
-    if proc_type != 'cpu' and proc_type != 'gpu':
-        print 'Error: processor type needs to be "cpu" or "gpu"'
+
+    lang = lang.lower()
+    if lang not in utils.langs:
+        print('Error: language needs to be one of: ')
+        for l in utils.langs:
+            print(l)
         sys.exit()
-    
-    # interpret reaction mechanism file
-    [num_e, num_s, num_r, units] = read_mech(mech_name, elems, specs, reacs)
-    
-    # interpret thermodynamic database file (if it exists)
-    if therm_name:
-        file = open(therm_name, 'r')
-        read_thermo(file, elems, specs)
-        file.close()
-    
-    rev_rxns = [rxn for rxn in reacs if rxn.rev]
-    if rev_rxns != []:
-        print 'Error: all reactions not irreversible.'
-        sys.exit()
-    
-    # convert activation energy units to K (if needed)
-    if 'kelvin' not in units:
-        efac = 1.0
-        
-        if 'kcal/mole' in units:
-            efac = 4184.0 / RU_JOUL
-        elif 'cal/mole' in units:
-            efac = 4.184 / RU_JOUL
-        elif 'kjoule' in units:
-            efac = 1000.0 / RU_JOUL
-        elif 'joules' in units:
-            efac = 1.00 / RU_JOUL
-        elif 'evolt' in units:
-            efac = 11595.0
+
+    if lang in ['fortran', 'matlab']:
+        print('WARNING: Fortran and Matlab support incomplete.')
+
+    # create output directory if none exists
+    build_path = './out/'
+    utils.create_dir(build_path)
+
+    # Interpret reaction mechanism file, depending on Cantera or
+    # Chemkin format.
+    if mech_name.endswith(tuple(['.cti', '.xml'])):
+        [elems, specs, reacs] = mech.read_mech_ct(mech_name)
+    else:
+        [elems, specs, reacs] = mech.read_mech(mech_name, therm_name)
+
+    # Check to see if the last_spec is specified
+    if last_spec is not None:
+        # Find the index if possible
+        isp = next((i for i, sp in enumerate(specs)
+                   if sp.name.lower() == last_spec.lower().strip()),
+                   None
+                   )
+        if isp is None:
+            print('Warning: User specified last species {} '
+                  'not found in mechanism.'
+                  '  Attempting to find a default species.'.format(last_spec)
+                  )
+            last_spec = None
         else:
-            # default is cal/mole
-            efac = 4.184 / RU_JOUL
-        
-        for i, rxn in enumerate(reacs):
-            reacs[i].E = rxn.E * efac
-            
-            if rxn.low:
-                reacs[i].low[2] = rxn.low[2] * efac
-            if rxn.high:
-                reacs[i].high[2] = rxn.high[2] * efac
-            if rxn.plog:
-                reacs[i].plog_par[4] = rxn.plog_par[4] * efac
-    
+            last_spec = isp
+    else:
+        print('User specified last species not found or not specified.  '
+              'Attempting to find a default species')
+    if last_spec is None:
+        wt = chem.get_elem_wt()
+        #check for N2, Ar, He, etc.
+        candidates = [('N2', wt['n'] * 2.), ('Ar', wt['ar']),
+                        ('He', wt['he'])]
+        for sp in candidates:
+            match = next((isp for isp, spec in enumerate(specs)
+                          if sp[0].lower() == spec.name.lower() and
+                          sp[1] == spec.mw),
+                            None)
+            if match is not None:
+                last_spec = match
+                break
+        if last_spec is not None:
+            print('Default last species '
+                  '{} found.'.format(specs[last_spec].name)
+                  )
+    if last_spec is None:
+        print('Warning: Neither a user specified or default last species '
+              'could be found. Proceeding using the last species in the '
+              'base mechanism: {}'.format(specs[-1].name))
+        last_spec = len(specs) - 1
+
+    # ordering of species and reactions not changed.
+    fwd_rxn_mapping = range(len(reacs))
+    spec_maps = utils.get_species_mappings(len(specs), last_spec)
+    fwd_spec_mapping, reverse_spec_mapping = spec_maps
+
+    #pick up the last_spec and drop it at the end
+    temp = specs[:]
+    for i in range(len(specs)):
+        specs[i] = temp[fwd_spec_mapping[i]]
+
+    ## Now begin writing subroutines
+
     # print reaction rate subroutine
-    write_rxn_rates(proc_type, specs, reacs)
-    
+    rate.write_rxn_rates(build_path, lang, specs, reacs, fwd_rxn_mapping)
+
+    # if third-body/pressure-dependent reactions,
+    # print modification subroutine
+    if next((r for r in reacs if (r.thd_body or r.pdep)), None):
+        rate.write_rxn_pressure_mod(build_path, lang, specs, reacs,
+                                    fwd_rxn_mapping
+                                    )
+
     # write species rates subroutine
-    write_spec_rates(proc_type, specs, reacs)
-    
+    rate.write_spec_rates(build_path, lang, specs, reacs,
+                          fwd_spec_mapping, fwd_rxn_mapping
+                          )
+
     # write chem_utils subroutines
-    write_chem_utils(proc_type, specs)
-    
+    rate.write_chem_utils(build_path, lang, specs)
+
     # write derivative subroutines
-    write_derivs(proc_type, specs, num_r)
-    
-    # write mass-mole converter subroutines
-    write_mass_mole(specs)
-    
-    # write main and integration driver subroutines
-    write_main(proc_type, specs)
-    
-    # write header file
-    write_header(specs)
-    
-    return
+    rate.write_derivs(build_path, lang, specs, reacs)
+
+    # write mass-mole fraction conversion subroutine
+    rate.write_mass_mole(build_path, lang, specs)
+
+    write_header(build_path, lang, specs)
+    write_main(build_path, lang, specs)
+
+    return 0
 
 
 if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) == 3:
-        create_rate_subs(sys.argv[1], sys.argv[2])
-    elif len(sys.argv) == 4:
-        create_rate_subs(sys.argv[1], sys.argv[2], sys.argv[3])
-    else:
-        print 'Incorrect number of arguments'
+    # command line arguments
+    parser = ArgumentParser(description='Generates source code for species '
+                                        'and reaction rates.'
+                            )
+    parser.add_argument('-l', '--lang',
+                        type=str,
+                        choices=utils.langs,
+                        required=True,
+                        help='Programming language for output source files.'
+                        )
+    parser.add_argument('-i', '--input',
+                        type=str,
+                        required=True,
+                        help='Input mechanism filename (e.g., mech.dat).'
+                        )
+    parser.add_argument('-t', '--thermo',
+                        type=str,
+                        default=None,
+                        help='Thermodynamic database filename (e.g., '
+                             'therm.dat), or nothing if in mechanism.'
+                        )
+    parser.add_argument('-ls', '--last_species',
+                        required=False,
+                        type=str,
+                        default=None,
+                        help='The name of the species to set as the last in '
+                             'the mechanism. If not specifed, defaults to '
+                             'the first of N2, AR, and HE in the mechanism.'
+                        )
+
+    args = parser.parse_args()
+
+    create_rate_subs(args.lang, args.input, args.thermo)
