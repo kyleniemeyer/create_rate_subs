@@ -2378,7 +2378,7 @@ def write_mass_mole(path, lang, specs):
         # calculate density
         if lang in ['c', 'cuda']:
             file.write(
-                '  return pres * mw_avg / ({:.8e} * temp);'.format(chem.RU)
+                '  return pres * mw_avg / ({:.8e} * temp);'.format(chem.RU) +
                 '\n'
                 )
         else:

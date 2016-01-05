@@ -580,7 +580,7 @@ if __name__ == "__main__":
                         type=str,
                         default=None,
                         help='The name of the species to set as the last in '
-                             'the mechanism. If not specifed, defaults to '
+                             'the mechanism. If not specified, defaults to '
                              'the first of N2, AR, and HE in the mechanism.'
                         )
 

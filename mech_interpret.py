@@ -1,10 +1,10 @@
 """Chemkin-format mechanism interpreter module.
 """
 
-__all__ = ['read_mech', 'read_thermo']
-
 # Python 2 compatibility
 from __future__ import division
+
+__all__ = ['read_mech', 'read_thermo']
 
 # Standard libraries
 import sys
