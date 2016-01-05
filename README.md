@@ -1,18 +1,40 @@
 create\_rate\_subs
 =======
 
-This utility creates species and reaction rate subroutines for either the CPU (in C) or GPU (in CUDA C) from a Chemkin-format reaction mechanism.
+This utility creates species and reaction rate subroutines for either the CPU (in C) or GPU (in CUDA C) from a Chemkin- or Cantera-format reaction mechanism.
 
 Usage
 -------
 
-From the command line, use `python create_rate_subs.py proc mechname thermname` where `proc` is the processor type (e.g., `cpu` or `gpu`) and `mechname` and `thermname` are the names of the mechanism file and thermodynamic database, e.g.:
+`create\_rate\_subs` can be run either as an executable or script via Python. To run as an executable, from the command line change to the proper directory, change the file mode to executable and run:
 
-    $ python create_rate_subs.py cpu mech.dat therm.dat
+    chmod +x create_rate_subs.py
+    ./create_rate_subs [options]
 
-You can also run `create_rate_subs` without a thermodynamic database if the information is held in the mechanism file (after the species are declared), e.g.:
+To run it as a script, change to the appropriate directory and run:
 
-        $ python create_rate_subs.py gpu mech.dat
+    python create_rate_subs.py [options]
+
+The generated source code is placed within the `out` directory, which is created if it doesn't exist initially.
+
+Options
+-------
+
+In the above, `[options]` indicates where command line options should be specified. The options available can be seen using `-h` or `--help`, or below:
+
+    -h, --help            show this help message and exit
+    -l {c,cuda,fortran,matlab}, --lang {c,cuda,fortran,matlab}
+                          Programming language for output source files.
+    -i INPUT, --input INPUT
+                          Input mechanism filename (e.g., mech.dat).
+    -t THERMO, --thermo THERMO
+                          Thermodynamic database filename (e.g., therm.dat), or
+                          nothing if in mechanism.
+    -ls LAST_SPECIES, --last_species LAST_SPECIES
+                          The name of the species to set as the last in the
+                          mechanism. If not specified, defaults to the first of
+                          N2, AR, and HE in the mechanism.
+
 
 License
 -------
@@ -21,7 +43,7 @@ License
 
 If you use this package as part of a scholarly publication, please cite the following paper in addition to this resource:
 
- * KE Niemeyer and CJ Sung. Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs. *J. Comput. Phys.*, 256:854-871, 2014. doi:[10.1016/j.jcp.2013.09.025](http://dx.doi.org/10.1016/j.jcp.2013.09.025) 
+ * KE Niemeyer and CJ Sung. Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs. *J. Comput. Phys.*, 256:854-871, 2014. doi:[10.1016/j.jcp.2013.09.025](http://dx.doi.org/10.1016/j.jcp.2013.09.025)
 
 Author
 ------
