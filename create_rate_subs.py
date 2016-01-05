@@ -521,6 +521,10 @@ def create_rate_subs(lang, mech_name, therm_name=None, last_spec=None):
     for i in range(len(specs)):
         specs[i] = temp[fwd_spec_mapping[i]]
 
+    # Reassign reaction's product / reactant / third body list
+    # to integer indexes for speed
+    utils.reassign_species_lists(reacs, specs)
+
     ## Now begin writing subroutines
 
     # print reaction rate subroutine

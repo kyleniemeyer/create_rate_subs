@@ -60,6 +60,25 @@ def get_species_mappings(num_specs, last_species):
     return fwd_species_map, back_species_map
 
 
+def get_nu(isp, rxn):
+    """Returns the net nu of species isp for the reaction rxn
+    """
+    if isp in rxn.prod and isp in rxn.reac:
+        nu = (rxn.prod_nu[rxn.prod.index(isp)] -
+              rxn.reac_nu[rxn.reac.index(isp)])
+        # check if net production zero
+        if nu == 0:
+            return 0
+    elif isp in rxn.prod:
+        nu = rxn.prod_nu[rxn.prod.index(isp)]
+    elif isp in rxn.reac:
+        nu = -rxn.reac_nu[rxn.reac.index(isp)]
+    else:
+        # doesn't participate in reaction
+        return 0
+    return nu
+
+
 def read_str_num(string, sep = None):
     """Returns a list of floats pulled from a string.
 
@@ -175,6 +194,22 @@ def get_index(lang, index):
         return str(index + 1)
     if lang in ['c', 'cuda']:
         return str(index)
+
+
+def reassign_species_lists(reacs, specs):
+    """
+    Given a list of ReacInfo, and SpecInfo's, this method will update the
+    ReacInfo's reactants / products / third body list to integers
+    representing the species' index in the list.
+    """
+
+    species_map = {sp.name: i for i, sp in enumerate(specs)}
+    for rxn in reacs:
+        rxn.reac = [species_map[sp] for sp in rxn.reac]
+        rxn.prod = [species_map[sp] for sp in rxn.prod]
+        rxn.thd_body_eff = [(species_map[thd[0]], thd[1]) for thd in rxn.thd_body_eff]
+        if rxn.pdep_sp:
+            rxn.pdep_sp = species_map[rxn.pdep_sp]
 
 
 def is_integer(val):
