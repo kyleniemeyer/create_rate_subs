@@ -1,5 +1,6 @@
 create\_rate\_subs
 =======
+[![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.44336.svg)](http://dx.doi.org/10.5281/zenodo.44336)
 
 This utility creates species and reaction rate subroutines for either C or CUDA from a Chemkin- or Cantera-format reaction mechanism.
 
@@ -41,7 +42,12 @@ License
 
 `create_rate_subs` is released under the modified BSD license, see LICENSE for details.
 
-If you use this package as part of a scholarly publication, please cite the following paper in addition to this resource:
+Citation
+--------
+
+If you use this software as part of a scholarly publication, please cite the software directly using the DOI: [10.5281/zenodo.44336](http://dx.doi.org/10.5281/zenodo.44336)
+
+The following paper includes the first mention of this software, in addition to some description:
 
  * KE Niemeyer and CJ Sung. Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs. *J. Comput. Phys.*, 256:854-871, 2014. doi:[10.1016/j.jcp.2013.09.025](http://dx.doi.org/10.1016/j.jcp.2013.09.025)
 
